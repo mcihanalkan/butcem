@@ -115,7 +115,7 @@ async function runAnalysis() {
   if (aiState.loading) return;
   aiState.loading = true;
   aiState.error = '';
-  render();
+  aiRefresh();
   try {
     const out = parseJson(await aiGenerate(ANALYSIS_PROMPT(aiContext()), true));
     aiState.result = { ...out, at: Date.now() };
@@ -124,7 +124,7 @@ async function runAnalysis() {
     aiState.error = aiErrorText(e);
   } finally {
     aiState.loading = false;
-    if (ui.view === 'budget') render();
+    aiRefresh();
   }
 }
 
@@ -134,7 +134,7 @@ async function askAi(question) {
   aiState.asking = true;
   aiState.error = '';
   aiState.chat.push({ q: question, a: null });
-  render();
+  renderAiSheet();
   try {
     const history = aiState.chat.slice(-4, -1).map((c) => `Kullanıcı: ${c.q}\nKoç: ${c.a}`).join('\n\n');
     const prompt = `Kullanıcının bütçe verileri (JSON):\n${JSON.stringify(aiContext())}\n\n${history ? `Önceki konuşma:\n${history}\n\n` : ''}Kullanıcının sorusu: ${question}\n\nKısa ve net cevap ver (en fazla 8 satır). Gerekirse madde işareti kullan.`;
@@ -145,7 +145,7 @@ async function askAi(question) {
     aiState.error = aiErrorText(e);
   } finally {
     aiState.asking = false;
-    if (ui.view === 'budget') render();
+    aiRefresh();
   }
 }
 
@@ -161,45 +161,74 @@ function findExpenseCat(name) {
   return db.categories.find((c) => c.type === 'expense' && c.name.toLocaleLowerCase('tr') === n);
 }
 
+// AI durumu değişince: pencere açıksa onu, değilse ekranı yenile
+function aiRefresh() {
+  if ($('#sheet-root #ai-q')) renderAiSheet();
+  else if (ui.view === 'plan') render();
+}
+
+function scoreRing(score) {
+  const color = score >= 70 ? 'var(--inc)' : score >= 45 ? '#f59e0b' : 'var(--exp)';
+  return `<div class="score" style="--p:${score};--c:${color}"><b>${score}</b><small>/100</small></div>`;
+}
+
+// Bütçe ekranındaki küçük kart
 function aiCard() {
   if (!syncConfigured()) return '';
   const r = aiState.result;
-  const head = `<div class="between" style="margin-bottom:6px"><h3 style="margin:0">🤖 AI Bütçe Koçu</h3>${r?.at ? `<small class="muted">${new Date(r.at).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small>` : ''}</div>`;
-  if (!sync.user) {
-    return `<div class="card ai-card">${head}<p class="muted" style="font-size:13px">AI koçu kullanmak için önce <b>Ayarlar → Google ile giriş yap</b>.</p></div>`;
-  }
   const score = Number.isFinite(r?.puan) ? Math.max(0, Math.min(100, r.puan)) : null;
-  const scoreColor = score == null ? 'var(--muted)' : score >= 70 ? 'var(--inc)' : score >= 45 ? '#f59e0b' : 'var(--exp)';
-  const limits = (r?.limitOnerileri || []).map((x) => ({ ...x, cat: findExpenseCat(x.kategori) })).filter((x) => x.cat && x.limit > 0);
+  if (!sync.user) {
+    return `<div class="card ai-mini"><span class="ai-ico">🤖</span><span class="ai-mini-main"><b>AI Bütçe Koçu</b><small>Kullanmak için Ayarlar'dan Google ile giriş yap.</small></span></div>`;
+  }
+  return `<button class="card ai-mini" data-action="ai-open">
+    ${score != null ? scoreRing(score) : '<span class="ai-ico">🤖</span>'}
+    <span class="ai-mini-main"><b>AI Bütçe Koçu</b><small>${r ? esc(r.puanAciklama || r.ozet || '') : 'Harcamalarını incelesin, puan ve öneri versin'}</small></span>
+    <span class="muted">›</span>
+  </button>`;
+}
 
-  return `<div class="card ai-card">${head}
+function openAiSheet() {
+  renderAiSheet();
+  if (!aiState.result && !aiState.loading) runAnalysis();
+}
+
+function renderAiSheet() {
+  const r = aiState.result;
+  const score = Number.isFinite(r?.puan) ? Math.max(0, Math.min(100, r.puan)) : null;
+  const limits = aiLimits();
+  const q = $('#ai-q')?.value || '';
+  openSheet(`
+    <div class="sheet-head"><h2>🤖 AI Bütçe Koçu</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    ${aiState.loading && !r ? '<div class="empty">⏳ Harcamaların inceleniyor…</div>' : ''}
     ${r ? `
       <div class="ai-top">
-        ${score != null ? `<div class="score" style="--p:${score};--c:${scoreColor}"><b>${score}</b><small>/100</small></div>` : ''}
-        <div style="flex:1;min-width:0">${r.puanAciklama ? `<b style="font-size:14px">${esc(r.puanAciklama)}</b>` : ''}<p style="margin:4px 0 0;font-size:14px">${aiText(r.ozet || '')}</p></div>
+        ${score != null ? scoreRing(score) : ''}
+        <div style="flex:1;min-width:0">${r.puanAciklama ? `<b>${esc(r.puanAciklama)}</b>` : ''}<p class="small" style="margin:4px 0 0">${aiText(r.ozet || '')}</p></div>
       </div>
-      ${r.uyarilar?.length ? `<ul class="alerts" style="margin-top:12px">${r.uyarilar.map((u) => `<li class="warn">⚠️ ${esc(u)}</li>`).join('')}</ul>` : ''}
-      ${r.oneriler?.length ? `<h4>Öneriler</h4><div class="tips">${r.oneriler.map((o) => `<div class="tip"><b>💡 ${esc(o.baslik)}</b>${o.aylikTasarruf ? `<span class="inc">≈ ${moneyRound(o.aylikTasarruf * 100)}/ay</span>` : ''}<p>${esc(o.aciklama)}</p></div>`).join('')}</div>` : ''}
+      ${r.uyarilar?.length ? `<ul class="alerts" style="margin-top:14px">${r.uyarilar.map((u) => `<li class="warn">${esc(u)}</li>`).join('')}</ul>` : ''}
+      ${r.oneriler?.length ? `<h4>Öneriler</h4><div class="tips">${r.oneriler.map((o) => `<div class="tip"><div class="between"><b>${esc(o.baslik)}</b>${o.aylikTasarruf ? `<span class="inc">≈ ${moneyRound(o.aylikTasarruf * 100)}/ay</span>` : ''}</div><p>${esc(o.aciklama)}</p></div>`).join('')}</div>` : ''}
       ${limits.length ? `<h4>Önerilen limitler</h4>
         ${limits.map((x, i) => {
           const cur = db.budgets.find((b) => b.scope === 'cat' && b.categoryId === x.cat.id);
           return `<div class="free-row"><span class="ico" style="--c:${x.cat.color}">${esc(x.cat.icon)}</span>
-            <span style="flex:1;min-width:0"><b>${esc(x.cat.name)}: ${moneyRound(x.limit * 100)}</b><small class="muted" style="display:block">${esc(x.gerekce || '')}${cur ? ` · şu an ${moneyRound(cur.amount)}` : ''}</small></span>
+            <span style="flex:1;min-width:0"><b>${esc(x.cat.name)} · ${moneyRound(x.limit * 100)}</b><small class="muted" style="display:block">${esc(x.gerekce || '')}${cur ? ` (şu an ${moneyRound(cur.amount)})` : ''}</small></span>
             <button class="btn small" data-action="ai-apply" data-i="${i}">${cur ? 'Güncelle' : 'Uygula'}</button></div>`;
         }).join('')}
-        <button class="btn block" style="margin-top:8px" data-action="ai-apply-all">Tüm önerilen limitleri uygula</button>` : ''}
-    ` : `<p class="muted" style="font-size:13px;margin-top:0">Harcamalarını ve limitlerini inceleyip sana finansal sağlık puanı, uyarılar, tasarruf önerileri ve kategori limitleri önerir.</p>`}
-    <button class="btn primary block" style="margin-top:12px" data-action="ai-analyze" ${aiState.loading ? 'disabled' : ''}>${aiState.loading ? '⏳ Analiz ediliyor…' : r ? '🔄 Yeniden analiz et' : '✨ Bütçemi analiz et'}</button>
-    ${aiState.error ? `<p class="exp" style="font-size:13px">${esc(aiState.error)}</p>` : ''}
+        <button class="btn block" style="margin-top:8px" data-action="ai-apply-all">Hepsini uygula</button>` : ''}
+      <button class="btn block" style="margin-top:12px" data-action="ai-analyze" ${aiState.loading ? 'disabled' : ''}>${aiState.loading ? '⏳ Analiz ediliyor…' : '🔄 Yeniden analiz et'}</button>
+      <p class="muted" style="font-size:11px;margin:6px 0 0;text-align:center">Son analiz: ${new Date(r.at).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+    ` : ''}
+    ${aiState.error ? `<p class="exp small">${esc(aiState.error)}</p>${!r ? '<button class="btn block" data-action="ai-analyze">Tekrar dene</button>' : ''}` : ''}
+    <h4>Koça sor</h4>
     <div class="ai-chat">
-      ${aiState.chat.slice(-3).map((c) => `<div class="q">🙋 ${esc(c.q)}</div><div class="a">${c.a == null ? '⏳ Düşünüyor…' : aiText(c.a)}</div>`).join('')}
+      ${aiState.chat.slice(-4).map((c) => `<div class="q">${esc(c.q)}</div><div class="a">${c.a == null ? '⏳ Düşünüyor…' : aiText(c.a)}</div>`).join('')}
       <form class="ai-ask" data-ai-ask>
-        <input id="ai-q" placeholder="Koça sor: ör. Market harcamamı nasıl azaltırım?" maxlength="300" autocomplete="off">
+        <input id="ai-q" placeholder="ör. Market harcamamı nasıl azaltırım?" maxlength="300" autocomplete="off" value="${esc(q)}">
         <button class="btn primary" ${aiState.asking ? 'disabled' : ''}>Sor</button>
       </form>
     </div>
-    <p class="muted" style="font-size:11px;margin:10px 0 0">AI'a sadece kategori toplamları ve limitlerin gönderilir; notların gönderilmez. AI hata yapabilir, önemli kararlarda kendi değerlendirmeni yap.</p>
-  </div>`;
+    <p class="muted" style="font-size:11px;margin:12px 0 0">Koça sadece kategori toplamların ve limitlerin gönderilir, notların gönderilmez. AI yanılabilir.</p>
+  `);
 }
 
 function applyAiLimit(x) {
@@ -212,6 +241,7 @@ function aiLimits() {
 }
 
 Object.assign(actions, {
+  'ai-open': () => openAiSheet(),
   'ai-analyze': () => runAnalysis(),
   'ai-apply': (el) => {
     const x = aiLimits()[Number(el.dataset.i)];
@@ -219,6 +249,7 @@ Object.assign(actions, {
     applyAiLimit(x);
     save();
     render();
+    aiRefresh();
     toast(`${x.cat.name} limiti ${moneyRound(x.limit * 100)} oldu ✓`);
   },
   'ai-apply-all': () => {
@@ -227,6 +258,7 @@ Object.assign(actions, {
     list.forEach(applyAiLimit);
     save();
     render();
+    aiRefresh();
     toast(`${list.length} limit uygulandı ✓`);
   },
 });

@@ -18,10 +18,10 @@
       <div class="brand">💰 Bütçem</div>
       <button data-action="nav" data-view="home"><span>🏠</span><small>Özet</small></button>
       <button data-action="nav" data-view="tx"><span>📋</span><small>İşlemler</small></button>
-      <button data-action="nav" data-view="budget"><span>🎯</span><small>Bütçe</small></button>
+      <button data-action="nav" data-view="plan"><span>🎯</span><small>Plan</small><i class="nav-badge" id="badge-plan" hidden></i></button>
+      <button data-action="nav" data-view="cards"><span>💳</span><small>Kartlar</small><i class="nav-badge" id="badge-cards" hidden></i></button>
       <button data-action="nav" data-view="report"><span>📊</span><small>Rapor</small></button>
-      <button data-action="nav" data-view="cats"><span>🏷️</span><small>Kategoriler</small></button>
-      <button data-action="nav" data-view="settings"><span>⚙️</span><small>Ayarlar</small></button>
+      <button class="desk-only" data-action="nav" data-view="settings"><span>⚙️</span><small>Ayarlar</small></button>
     </nav>
     <main id="main"></main>
   </div>
@@ -31,7 +31,10 @@
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
   <script src="budget.js"></script>
+  <script src="recurring.js"></script>
+  <script src="accounts.js"></script>
   <script src="ai.js"></script>
+  <script src="home.js"></script>
   <script src="start.js"></script>
 </body>
 </html>

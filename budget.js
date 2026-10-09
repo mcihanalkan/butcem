@@ -57,7 +57,9 @@ function budgetStatus(b, per = budgetPeriod()) {
   const pct = limit > 0 ? spent / limit : spent > 0 ? 1 : 0;
   const expectedPct = per.days ? elapsed / per.days : 0;
   // Tahmin: sabit giderler olduğu gibi + değişken giderlerin günlük ortalaması × ayın gün sayısı
-  const projected = isPast ? spent : isCurrent && elapsed >= 3 ? split.fixed + Math.round((split.variable / elapsed) * per.days) : null;
+  // + bu ay henüz ödenmemiş düzenli giderler (kira, fatura…)
+  const planned = isCurrent ? plannedPending(per, b) : 0;
+  const projected = isPast ? spent : isCurrent && elapsed >= 3 ? split.fixed + planned + Math.round((split.variable / elapsed) * per.days) : null;
   const remaining = limit - spent;
   const daily = isCurrent && remaining > 0 ? Math.floor(remaining / daysLeft) : 0;
   let fullDate = null; // bu hızla limitin dolacağı gün
@@ -127,7 +129,8 @@ function suggestFor(scope, categoryId) {
 // Harcaması olduğu halde limiti olmayan kategoriler (bu ay)
 function unbudgeted(per) {
   const has = new Set(db.budgets.filter((b) => b.scope === 'cat').map((b) => b.categoryId));
-  return byCategory(txIn(per), 'expense').filter((r) => !has.has(r.id));
+  // Kira, fatura gibi sabit giderler hariç: onlar Düzenli bölümünde takip ediliyor
+  return byCategory(txIn(per), 'expense').filter((r) => !has.has(r.id) && !FIXED_CATS.has(r.id));
 }
 
 // Kategorideki tipik tutarın kaç katı (en az 6 örnek, en az 500 ₺ fark)
@@ -194,13 +197,13 @@ function levelChip(level) {
 
 function budgetRow(s) {
   const b = s.b;
+  const right = s.level === 'over' ? `<b class="exp">${moneyRound(-s.remaining)} aşıldı</b>` : `<span class="muted">${moneyRound(s.remaining)} kaldı</span>`;
   return `<button class="brow" data-action="bud-edit" data-id="${b.id}">
     <span class="ico" style="--c:${budgetColor(b)}">${esc(budgetIcon(b))}</span>
     <span class="brow-main">
-      <span class="between"><b>${esc(budgetName(b))}</b>${levelChip(s.level)}</span>
+      <span class="between"><b>${esc(budgetName(b))}</b><span class="brow-nums"><b>${moneyRound(s.spent)}</b> / ${moneyRound(s.limit)}</span></span>
       ${budgetBar(s)}
-      <span class="between brow-nums"><span><b>${money(s.spent)}</b> / ${money(s.limit)}${s.carry ? ` <small class="muted">(+${money(s.carry)} devreden)</small>` : ''}</span><span>${pctText(s.pct)}</span></span>
-      <small class="brow-msg">${esc(statusMessage(s))}</small>
+      <span class="between brow-nums"><span>${s.level === 'pace' ? '⏱️ Hızlı gidiyor' : s.level === 'warn' ? '⚠️ Sınıra yakın' : s.carry ? `+${moneyRound(s.carry)} devreden` : ''}</span>${right}</span>
     </span>
   </button>`;
 }
@@ -224,127 +227,122 @@ function overallStatus(per) {
   return { s, label: 'Limitli kategoriler toplamı' };
 }
 
-/* ------------------------------ Özet kartı ------------------------------ */
+/* ------------------------------ ortak parçalar ------------------------------ */
 
-function homeBudgetCard() {
-  const per = budgetPeriod(todayISO());
-  if (!db.budgets.length) {
-    const hasHistory = db.transactions.some((t) => t.type === 'expense');
-    return `<div class="card budget-cta">
-      <div class="between"><div><b>🎯 Aylık bütçe limiti koy</b>
-        <p class="muted" style="margin:4px 0 0;font-size:13px">${hasHistory ? 'Geçmiş harcamalarına göre senin için otomatik limit önerebilirim.' : 'Kategorilere limit koy; yaklaşınca ve aşınca seni uyarayım.'}</p></div></div>
-      <button class="btn primary block" style="margin-top:10px" data-action="nav" data-view="budget">Bütçeyi ayarla</button>
-    </div>`;
-  }
-  const o = overallStatus(per);
-  const alerts = sortStatuses(db.budgets.filter((b) => b.scope === 'cat').map((b) => budgetStatus(b, per))).filter((s) => s.level !== 'ok');
-  return `<div class="card">
-    <div class="between" style="margin-bottom:8px"><h3 style="margin:0">🎯 Bu ayın bütçesi</h3><button class="link" data-action="nav" data-view="budget">Detay ›</button></div>
-    ${o ? `<div class="between brow-nums"><span><b>${money(o.s.spent)}</b> / ${money(o.s.limit)}</span>${levelChip(o.s.level)}</div>
-      ${budgetBar(o.s)}
-      <p class="muted" style="margin:6px 0 0;font-size:13px">${esc(statusMessage(o.s))} ${o.s.isCurrent ? `· ${o.s.daysLeft} gün kaldı` : ''}</p>` : ''}
-    ${alerts.length
-      ? `<div class="mini-alerts">${alerts.slice(0, 4).map((s) => `<button data-action="bud-edit" data-id="${s.b.id}"><span>${LEVEL_META[s.level].icon} <b>${esc(budgetName(s.b))}</b></span><span>${pctText(s.pct)}</span></button>`).join('')}
-        ${alerts.length > 4 ? `<small class="muted">+${alerts.length - 4} uyarı daha</small>` : ''}</div>`
-      : `<p style="margin:10px 0 0;font-size:13px" class="inc">✅ Tüm kategori limitleri yolunda.</p>`}
+// Ay seçici: ‹ 9 Eki – 8 Kas ›  (prefix-shift / prefix-today eylemleri)
+function monthNav(per, prefix) {
+  return `<div class="month-nav">
+    <button class="arrow" data-action="${prefix}-shift" data-dir="-1" aria-label="Önceki ay">‹</button>
+    <button class="label" data-action="${prefix}-today" title="Bu aya dön">${esc(per.label)}</button>
+    <button class="arrow" data-action="${prefix}-shift" data-dir="1" aria-label="Sonraki ay">›</button>
   </div>`;
+}
+
+// Özet ekranındaki küçük bütçe çubuğu
+function budgetMini() {
+  if (!db.budgets.length) return '';
+  const o = overallStatus(budgetPeriod(todayISO()));
+  if (!o) return '';
+  const s = o.s;
+  const right = s.remaining < 0 ? `${moneyRound(-s.remaining)} aşıldı` : s.isCurrent ? `Günde ${moneyRound(s.daily)}` : '';
+  return `<button class="hero-budget" data-action="nav" data-view="budget">
+    <span class="between"><span>Bütçe ${pctText(s.pct)}</span><span>${right}</span></span>
+    ${budgetBar(s)}
+  </button>`;
+}
+
+// Özet ekranındaki "yapılacaklar" için: aşılan ve sınıra yaklaşan limitler
+function budgetAttention() {
+  const per = budgetPeriod(todayISO());
+  return sortStatuses(db.budgets.map((b) => budgetStatus(b, per))).filter((s) => s.level === 'over' || s.level === 'warn');
 }
 
 /* ------------------------------ Bütçe ekranı ------------------------------ */
 
 function viewBudget() {
   const per = budgetPeriod();
-  const statuses = db.budgets.filter((b) => b.scope === 'cat').map((b) => budgetStatus(b, per));
-  const o = overallStatus(per);
-  const free = unbudgeted(per);
-  const today = todayISO();
-  const isCurrent = today >= per.start && today <= per.end;
-
-  const nav = `<div class="period-nav" style="margin:0 0 14px">
-    <button class="arrow" data-action="bud-shift" data-dir="-1" aria-label="Önceki ay">‹</button>
-    <button class="label" data-action="bud-today" title="Bu aya dön">${esc(per.label)}${isCurrent ? '' : ' <small class="muted">(geçmiş/gelecek)</small>'}</button>
-    <button class="arrow" data-action="bud-shift" data-dir="1" aria-label="Sonraki ay">›</button>
-  </div>`;
+  const nav = monthNav(per, 'bud');
 
   if (!db.budgets.length) {
     const plan = autoPlan();
-    return `<h1>Bütçe</h1>${nav}
-      <div class="card">
-        <div class="empty" style="padding:12px 0"><span class="big">🎯</span><b>Henüz limit yok</b><br>Kategorilere aylık limit koy; %80'e gelince, aşınca ve hızlı harcadığında seni uyarayım.</div>
-        ${plan.length ? `<button class="btn primary block" data-action="bud-auto">✨ Geçmişime göre otomatik bütçe öner (${plan.length} limit)</button>` : `<p class="muted" style="font-size:13px;text-align:center">Birkaç hafta harcama girdikten sonra sana otomatik limit de önerebilirim.</p>`}
-        <button class="btn block" style="margin-top:10px" data-action="bud-new">+ Kendim limit ekleyeyim</button>
+    return `${nav}
+      <div class="card empty-card">
+        <span class="big">🎯</span>
+        <b>Henüz limit yok</b>
+        <p>Kategorilere aylık limit koy; yaklaşınca, aşınca ve hızlı harcadığında uyarayım.</p>
+        <div class="btn-stack">
+          ${plan.length ? `<button class="btn primary" data-action="bud-auto">✨ Geçmişime göre öner</button>` : ''}
+          <button class="btn ${plan.length ? '' : 'primary'}" data-action="bud-new">+ Limit ekle</button>
+        </div>
       </div>
       ${aiCard()}`;
   }
 
-  const os = o?.s;
-  return `
-    <h1 class="between">Bütçe <button class="btn small" data-action="bud-new">+ Limit</button></h1>
-    ${nav}
-    ${os ? `<div class="card">
-      <div class="between"><h3 style="margin:0">${o.label}</h3>${levelChip(os.level)}</div>
-      <div class="big-num"><b>${money(os.spent)}</b><span class="muted"> / ${money(os.limit)}</span></div>
-      ${budgetBar(os)}
-      <div class="kpis">
-        <div><small>Kalan</small><b class="${os.remaining >= 0 ? 'inc' : 'exp'}">${money(os.remaining)}</b></div>
-        ${os.isCurrent ? `<div><small>Günlük harcayabileceğin</small><b>${money(os.daily)}</b></div>` : ''}
-        ${os.projected != null ? `<div><small>${os.isPast ? 'Ay sonu' : 'Ay sonu tahmini'}</small><b class="${os.projected > os.limit ? 'exp' : ''}">${money(os.projected)}</b></div>` : ''}
-        ${os.isCurrent ? `<div><small>Kalan gün</small><b>${os.daysLeft}</b></div>` : ''}
-      </div>
-      ${os.isCurrent ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Çubuktaki çizgi: bugün itibarıyla harcamış olman "beklenen" seviye. Çubuk çizginin gerisindeyse iyi gidiyorsun.</p>` : ''}
-    </div>` : ''}
-    ${alertsCard(per, statuses, free)}
+  const statuses = sortStatuses(db.budgets.filter((b) => b.scope === 'cat').map((b) => budgetStatus(b, per)));
+  const o = overallStatus(per);
+  const s = o.s;
+  const free = unbudgeted(per);
+  const freeSum = free.reduce((a, r) => a + r.sum, 0);
+  const alerts = budgetAlertList(per, statuses, free);
+  const shown = ui.budAllAlerts ? alerts : alerts.slice(0, 3);
+
+  return `${nav}
     <div class="card">
-      <div class="between" style="margin-bottom:4px"><h3 style="margin:0">Kategori limitleri</h3><span class="muted" style="font-size:13px">${statuses.length} limit</span></div>
-      ${statuses.length ? sortStatuses(statuses).map(budgetRow).join('') : `<p class="muted" style="font-size:13px">Henüz kategori limiti yok.</p>`}
-      <button class="btn block" style="margin-top:10px" data-action="bud-new">+ Kategori limiti ekle</button>
+      <div class="between"><span class="muted small">${o.label}</span>${levelChip(s.level)}</div>
+      <div class="big-num">${money(s.spent)}<span> / ${moneyRound(s.limit)}</span></div>
+      ${budgetBar(s)}
+      <div class="kpi-row">
+        <div><small>Kalan</small><b class="${s.remaining >= 0 ? 'inc' : 'exp'}">${moneyRound(s.remaining)}</b></div>
+        ${s.isCurrent ? `<div><small>Günlük</small><b>${moneyRound(s.daily)}</b></div>` : ''}
+        ${s.projected != null ? `<div><small>${s.isPast ? 'Ay sonu' : 'Ay sonu tahmini'}</small><b class="${s.projected > s.limit ? 'exp' : ''}">${moneyRound(s.projected)}</b></div>` : ''}
+      </div>
     </div>
-    ${free.length ? `<div class="card">
-      <h3>Limitsiz harcamalar</h3>
-      <p class="muted" style="font-size:13px;margin-top:-4px">Bu ay harcama yaptığın ama limit koymadığın kategoriler.</p>
-      ${free.map((r) => {
-        const sug = suggestFor('cat', r.id);
-        return `<div class="free-row"><span class="ico" style="--c:${r.cat.color}">${esc(r.cat.icon)}</span>
-          <span style="flex:1;min-width:0"><b>${esc(r.cat.name)}</b><small class="muted" style="display:block">${money(r.sum)} harcandı${sug ? ` · öneri: ${moneyRound(sug.amount)}` : ''}</small></span>
-          <button class="btn small" data-action="bud-quick" data-id="${r.id}">Limit koy</button></div>`;
-      }).join('')}
+    ${alerts.length ? `<div class="card">
+      <h3>Dikkat</h3>
+      <ul class="alerts">${shown.join('')}</ul>
+      ${alerts.length > 3 ? `<button class="link" style="margin-top:8px" data-action="bud-all-alerts">${ui.budAllAlerts ? 'Daha az göster' : `Tümünü göster (${alerts.length})`}</button>` : ''}
     </div>` : ''}
-    ${historyCard()}
-    ${aiCard()}
-  `;
+    <div class="card">
+      <div class="between" style="margin-bottom:2px"><h3 style="margin:0">Kategori limitleri</h3><button class="link" data-action="bud-new">+ Ekle</button></div>
+      ${statuses.length ? statuses.map(budgetRow).join('') : '<p class="muted small">Henüz kategori limiti yok.</p>'}
+      ${free.length ? `<button class="free-line" data-action="bud-free">💡 ${free.length} kategoride limit yok · ${moneyRound(freeSum)} harcandı <span>›</span></button>` : ''}
+    </div>
+    ${aiCard()}`;
 }
 
-function alertsCard(per, statuses, free) {
+function budgetAlertList(per, statuses, free) {
   const items = [];
-  for (const s of sortStatuses(statuses)) if (s.level !== 'ok') items.push(`<li class="${s.level}">${LEVEL_META[s.level].icon} <b>${esc(budgetName(s.b))}:</b> ${esc(statusMessage(s))}</li>`);
+  const li = (level, html) => items.push(`<li class="${level}">${html}</li>`);
   const total = db.budgets.find((b) => b.scope === 'total');
   if (total) {
     const ts = budgetStatus(total, per);
-    const catSum = db.budgets.filter((b) => b.scope === 'cat').reduce((a, b) => a + b.amount, 0);
-    if (catSum > total.amount) items.push(`<li class="pace">🧮 Kategori limitlerinin toplamı (${money(catSum)}) toplam bütçeden (${money(total.amount)}) fazla.</li>`);
-    if (ts.level !== 'ok') items.unshift(`<li class="${ts.level}">${LEVEL_META[ts.level].icon} <b>Toplam:</b> ${esc(statusMessage(ts))}</li>`);
+    if (ts.level !== 'ok') li(ts.level, `${LEVEL_META[ts.level].icon} <b>Toplam:</b> ${esc(statusMessage(ts))}`);
   }
-  const bigFree = free.filter((r) => r.sum >= 100000).slice(0, 3);
-  for (const r of bigFree) items.push(`<li class="info">💡 <b>${esc(r.cat.name)}</b> için limit yok ama bu ay ${money(r.sum)} harcandı.</li>`);
-  const odd = txIn(per).filter((t) => t.type === 'expense' && unusualFactor(t)).slice(0, 3);
-  for (const t of odd) items.push(`<li class="info">🔎 ${shortDay(t.date)} tarihli ${esc((catMap()[t.categoryId] || MISSING_CAT).name)} harcaması (${money(t.amount)}) normalin ~${unusualFactor(t)} katı.</li>`);
-  const inc = totals(txIn(per)).inc;
-  if (total && inc > 0 && total.amount > inc) items.push(`<li class="pace">💸 Toplam bütçen (${money(total.amount)}) bu ayki gelirinden (${money(inc)}) yüksek.</li>`);
-  if (!items.length) return `<div class="card ok-card">✅ Her şey yolunda, şu an bir uyarı yok.</div>`;
-  return `<div class="card"><h3>Uyarılar (${items.length})</h3><ul class="alerts">${items.join('')}</ul></div>`;
+  for (const st of statuses) if (st.level !== 'ok') li(st.level, `${LEVEL_META[st.level].icon} <b>${esc(budgetName(st.b))}:</b> ${esc(statusMessage(st))}`);
+  for (const t of txIn(per).filter((x) => x.type === 'expense' && unusualFactor(x)).slice(0, 2)) {
+    li('info', `🔎 ${shortDay(t.date)} ${esc((catMap()[t.categoryId] || MISSING_CAT).name)} harcaması (${moneyRound(t.amount)}) normalin ~${unusualFactor(t)} katı.`);
+  }
+  if (total) {
+    const catSum = db.budgets.filter((b) => b.scope === 'cat').reduce((a, b) => a + b.amount, 0);
+    if (catSum > total.amount) li('pace', `🧮 Kategori limitlerinin toplamı (${moneyRound(catSum)}) toplam bütçeyi aşıyor.`);
+    const inc = totals(txIn(per)).inc;
+    if (inc > 0 && total.amount > inc) li('pace', `💸 Toplam bütçe bu ayki gelirinden (${moneyRound(inc)}) yüksek.`);
+  }
+  return items;
 }
 
-function historyCard() {
-  const months = pastMonths(6);
-  const first = db.transactions.reduce((m, t) => (t.date < m ? t.date : m), '9999');
-  const rows = months.filter((p) => p.end >= first).map((p) => {
-    const o = overallStatus(p);
-    return o ? `<tr><td>${esc(p.label)}</td><td>${num(o.s.spent)}</td><td>${num(o.s.limit)}</td><td class="${o.s.remaining >= 0 ? 'inc' : 'exp'}">${num(o.s.remaining)}</td></tr>` : '';
-  }).join('');
-  if (!rows) return '';
-  return `<div class="card"><h3>Geçmiş aylar</h3>
-    <p class="muted" style="font-size:12px;margin-top:-4px">Şu anki limitlerin geçmiş aylara uygulanmış hali.</p>
-    <div class="table-scroll"><table><thead><tr><th>Ay</th><th>Harcanan</th><th>Limit</th><th>Fark (${esc(db.settings.currency)})</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+function openFreeList() {
+  const free = unbudgeted(budgetPeriod());
+  openSheet(`
+    <div class="sheet-head"><h2>Limitsiz harcamalar</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <p class="muted small" style="margin-top:0">Bu ay harcama yaptığın ama limit koymadığın kategoriler.</p>
+    ${free.map((r) => {
+      const sug = suggestFor('cat', r.id);
+      return `<div class="free-row"><span class="ico" style="--c:${r.cat.color}">${esc(r.cat.icon)}</span>
+        <span style="flex:1;min-width:0"><b>${esc(r.cat.name)}</b><small class="muted" style="display:block">${moneyRound(r.sum)} harcandı${sug ? ` · öneri ${moneyRound(sug.amount)}` : ''}</small></span>
+        <button class="btn small" data-action="bud-quick" data-id="${r.id}">Limit koy</button></div>`;
+    }).join('')}
+  `);
 }
 
 /* ------------------------------ limit formu ------------------------------ */
@@ -485,8 +483,6 @@ function applyAutoPlan() {
 
 /* ------------------------------ olaylar ------------------------------ */
 
-VIEWS.budget = viewBudget;
-
 Object.assign(actions, {
   'bud-new': () => openBudgetForm(),
   'bud-edit': (el) => {
@@ -506,6 +502,8 @@ Object.assign(actions, {
   'bud-shift': (el) => { ui.budgetAnchor = shiftedPeriod(Number(el.dataset.dir), { mode: 'month', anchor: ui.budgetAnchor }).anchor; render(); },
   'bud-today': () => { ui.budgetAnchor = todayISO(); render(); },
   'bud-auto': () => openAutoPlan(),
+  'bud-free': () => openFreeList(),
+  'bud-all-alerts': () => { ui.budAllAlerts = !ui.budAllAlerts; render(); },
   'bud-auto-apply': () => applyAutoPlan(),
   'alert-close': () => { $('#toast-root').innerHTML = ''; },
   'alert-budget': () => { $('#toast-root').innerHTML = ''; ui.view = 'budget'; ui.budgetAnchor = todayISO(); render(); window.scrollTo(0, 0); },

@@ -1,6 +1,8 @@
 'use strict';
-// Tüm dosyalar (app.js, budget.js, ai.js) yüklendikten sonra uygulamayı başlatır.
+// Tüm dosyalar yüklendikten sonra uygulamayı başlatır.
 
+if (SUB_PAGES.includes(ui.view)) ui.view = 'home';
+history.replaceState({ view: ui.view }, '');
 render();
 initSync();
 

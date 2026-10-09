@@ -72,6 +72,8 @@ function freshData() {
     settings: { currency: '₺', monthStartDay: 1, weekStartDay: 1, theme: 'auto' },
     categories: cats,
     transactions: [],
+    accounts: [], // kartlar ve hesaplar: [{ id, kind: 'credit' | 'bank' | 'cash', name, bank, limit, opening, statementDay, dueDay, minPct }]
+    recurring: [], // düzenli gelir/gider tanımları: [{ id, type, name, amount, categoryId, day, startDate, endDate, variable, paused, skipped: [] }]
     budgets: [], // aylık limitler: [{ id, scope: 'total' | 'cat', categoryId, amount, alertAt, rollover }]
     deleted: [], // silinen kayıtların izi: [{ id, kind: 'tx' | 'cat' | 'bud', at, data }]
     pending: {}, // buluta gönderilmeyi bekleyen değişiklikler: { 'tx:<id>': zaman }
@@ -88,6 +90,8 @@ function normalize(d) {
     categories: Array.isArray(d.categories) ? d.categories : base.categories,
     transactions: Array.isArray(d.transactions) ? d.transactions : [],
     deleted: (Array.isArray(d.deleted) ? d.deleted : []).map((x) => ({ kind: 'tx', ...x })),
+    recurring: Array.isArray(d.recurring) ? d.recurring : [],
+    accounts: Array.isArray(d.accounts) ? d.accounts : [],
     budgets: Array.isArray(d.budgets) ? d.budgets : [],
     pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
     sync: d.sync || null,
@@ -135,7 +139,7 @@ function setSetting(key, value) {
 function mergeBackup(backup) {
   const now = Date.now();
   let added = 0;
-  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions]]) {
+  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts]]) {
     const have = new Set(arr.map((x) => x.id));
     for (const item of list) {
       if (!item || !item.id || have.has(item.id)) continue;
@@ -288,7 +292,7 @@ function txIn(per) {
 }
 function totals(list) {
   let inc = 0, exp = 0;
-  for (const t of list) t.type === 'income' ? (inc += t.amount) : (exp += t.amount);
+  for (const t of list) if (t.type === 'income') inc += t.amount; else if (t.type === 'expense') exp += t.amount;
   return { inc, exp, net: inc - exp };
 }
 function byCategory(list, type) {
@@ -331,7 +335,8 @@ function buckets(per) {
   const idx = Object.fromEntries(list.map((b, i) => [b.key, i]));
   for (const t of txIn(per)) {
     const b = list[idx[t.date.slice(0, keyLen)]];
-    if (b) t.type === 'income' ? (b.inc += t.amount) : (b.exp += t.amount);
+    if (b && t.type === 'income') b.inc += t.amount;
+    else if (b && t.type === 'expense') b.exp += t.amount;
   }
   return { unit, list };
 }
@@ -411,8 +416,19 @@ function periodBar() {
 }
 
 function txRow(t, cm, showDate = false) {
+  if (t.type === 'transfer') {
+    const from = accById(t.fromId), to = accById(t.toId);
+    const title = to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer';
+    const sub = [showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', `${from ? from.name : 'Hesap dışı'} → ${to ? to.name : '?'}`, t.note].filter(Boolean).join(' · ');
+    return `<button class="tx" data-action="edit-tx" data-id="${t.id}">
+      <span class="ico" style="--c:#64748b">↔️</span>
+      <span class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></span>
+      <span class="amt muted">${money(t.amount)}</span>
+    </button>`;
+  }
   const c = cm[t.categoryId] || MISSING_CAT;
-  const sub = [showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
+  const acc = t.accountId ? accById(t.accountId) : null;
+  const sub = [t.recId ? '🔁' : '', acc ? `${accIcon(acc)} ${acc.name}` : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
   return `<button class="tx" data-action="edit-tx" data-id="${t.id}">
     <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
     <span class="tx-main"><b>${esc(c.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>
@@ -420,13 +436,8 @@ function txRow(t, cm, showDate = false) {
   </button>`;
 }
 
-function deltaText(cur, prev, goodWhenUp) {
-  if (!prev) return '';
-  const pct = Math.round(((cur - prev) / prev) * 100);
-  if (pct === 0) return `<div class="delta">önceki dönemle aynı</div>`;
-  const up = pct > 0;
-  const cls = up === goodWhenUp ? 'inc' : 'exp';
-  return `<div class="delta"><span class="${cls}">${up ? '▲' : '▼'} %${Math.abs(pct)}</span> önceki döneme göre</div>`;
+function viewHead(title, right = '') {
+  return `<div class="vhead"><h1>${title}</h1><div class="vhead-r">${right}</div></div>`;
 }
 
 function emptyState(text) {
@@ -434,56 +445,6 @@ function emptyState(text) {
 }
 
 /* ------------------------------- ekranlar ------------------------------- */
-
-function viewHome() {
-  const per = getPeriod();
-  const list = txIn(per);
-  const t = totals(list);
-  const prevP = shiftedPeriod(-1);
-  const prev = prevP ? totals(txIn(getPeriod(prevP))) : null;
-  const cm = catMap();
-
-  const rows = byCategory(list, ui.homeDonut);
-  const total = ui.homeDonut === 'income' ? t.inc : t.exp;
-  const top = rows.slice(0, 7).map((r) => ({ label: r.cat.name, icon: r.cat.icon, color: r.cat.color, value: r.sum }));
-  const rest = rows.slice(7).reduce((s, r) => s + r.sum, 0);
-  if (rest > 0) top.push({ label: 'Diğerleri', icon: '•••', color: '#94a3b8', value: rest });
-
-  const daysElapsed = Math.max(1, Math.min(per.days, dayDiff(fromISO(per.start), new Date()) + 1));
-  const recent = sortTx(list).slice(0, 8);
-
-  return `
-    <h1 class="between">Özet ${syncBadge()}</h1>
-    ${periodBar()}
-    <div class="stats">
-      <div class="stat"><small>Gelir</small><b class="inc">${money(t.inc)}</b>${prev ? deltaText(t.inc, prev.inc, true) : ''}</div>
-      <div class="stat"><small>Gider</small><b class="exp">${money(t.exp)}</b>${prev ? deltaText(t.exp, prev.exp, false) : ''}</div>
-      <div class="stat"><small>Kalan</small><b class="${t.net >= 0 ? 'inc' : 'exp'}">${money(t.net)}</b></div>
-    </div>
-    ${homeBudgetCard()}
-    <div class="card">
-      <div class="between" style="margin-bottom:12px">
-        <h3 style="margin:0">${ui.homeDonut === 'income' ? 'Gelir' : 'Gider'} dağılımı</h3>
-        <div class="seg" style="width:150px">
-          <button data-action="home-donut" data-val="expense" class="${ui.homeDonut === 'expense' ? 'on' : ''}">Gider</button>
-          <button data-action="home-donut" data-val="income" class="${ui.homeDonut === 'income' ? 'on' : ''}">Gelir</button>
-        </div>
-      </div>
-      ${total > 0
-        ? `<div class="donut-wrap">${donut(top, total)}
-            <div class="legend">${top.map((it) => `<div><i style="background:${it.color}"></i><span>${esc(it.icon)} ${esc(it.label)}</span><em>%${Math.round((it.value / total) * 100)}</em><b>${esc(moneyRound(it.value))}</b></div>`).join('')}</div>
-          </div>`
-        : emptyState(`Bu dönemde ${ui.homeDonut === 'income' ? 'gelir' : 'gider'} yok.`)}
-      <div class="mini-stats">
-        <span>İşlem: <b>${list.length}</b></span>
-        <span>Günlük ort. gider: <b>${money(Math.round(t.exp / daysElapsed))}</b></span>
-        ${t.inc > 0 ? `<span>Tasarruf oranı: <b>%${Math.round((t.net / t.inc) * 100)}</b></span>` : ''}
-      </div>
-    </div>
-    <div class="between" style="margin:18px 4px 8px"><h3 style="margin:0">Son işlemler</h3>${list.length > 8 ? `<button class="link" data-action="nav" data-view="tx">Tümü ›</button>` : ''}</div>
-    ${recent.length ? `<div class="list">${recent.map((x) => txRow(x, cm, true)).join('')}</div>` : emptyState('Henüz işlem yok. Sağ alttaki <b>+</b> ile ekle.')}
-  `;
-}
 
 function viewTx() {
   const per = getPeriod();
@@ -511,7 +472,7 @@ function viewTx() {
     .map((c) => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</optgroup>`;
 
   return `
-    <h1>İşlemler</h1>
+    ${viewHead('İşlemler')}
     ${periodBar()}
     <div class="filters">
       <input type="search" placeholder="🔍 Ara (kategori, not, tutar)" value="${esc(f.q)}" data-input="tx-q">
@@ -551,7 +512,7 @@ function viewReport() {
   const catTotal = ui.reportCat === 'income' ? t.inc : t.exp;
 
   return `
-    <h1>Rapor</h1>
+    ${viewHead('Rapor')}
     ${periodBar()}
     <div class="stats">
       <div class="stat"><small>Gelir</small><b class="inc">${money(t.inc)}</b></div>
@@ -601,7 +562,8 @@ function viewCats() {
   const cats = db.categories.filter((c) => c.type === ui.catTab)
     .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
   return `
-    <h1>Kategoriler</h1>
+    <button class="back" data-action="nav" data-view="settings">‹ Ayarlar</button>
+    ${viewHead('Kategoriler')}
     <div class="seg type" style="margin-bottom:14px">
       <button data-action="cat-tab" data-val="expense" class="${ui.catTab === 'expense' ? 'on' : ''}">Gider (${db.categories.filter((c) => c.type === 'expense').length})</button>
       <button data-action="cat-tab" data-val="income" class="${ui.catTab === 'income' ? 'on' : ''}">Gelir (${db.categories.filter((c) => c.type === 'income').length})</button>
@@ -620,8 +582,11 @@ function viewCats() {
 function viewSettings() {
   const s = db.settings;
   return `
-    <h1>Ayarlar</h1>
+    ${viewHead('Ayarlar')}
     ${syncCard()}
+    <div class="card">
+      <button class="between" style="width:100%" data-action="nav" data-view="cats"><span><b>🏷️ Kategoriler</b><small class="muted" style="display:block;font-size:12px;text-align:left">${db.categories.length} kategori · ekle, düzenle, sil</small></span><span class="muted">›</span></button>
+    </div>
     <div class="card">
       <div class="setting">
         <div><b>Ay başlangıç günü</b><p>Maaş günün 9 ise 9 seç: "Ay" görünümü 9'undan sonraki ayın 8'ine kadar sayar.</p></div>
@@ -661,15 +626,17 @@ function viewSettings() {
   `;
 }
 
-const VIEWS = { home: viewHome, tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
+const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
 function render() {
+  if (ui.view === 'budget' || ui.view === 'recurring') { ui.planTab = ui.view; ui.view = 'plan'; }
   if (!VIEWS[ui.view]) ui.view = 'home';
   const main = $('#main');
   const scroll = window.scrollY;
   main.innerHTML = VIEWS[ui.view]();
   window.scrollTo(0, scroll);
   $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === ui.view));
+  if (typeof updateNavBadges === 'function') updateNavBadges();
   applyTheme();
   saveUi();
 }
@@ -700,14 +667,27 @@ function hideSheet() {
   catForm = null;
 }
 function closeSheet() { if (sheetOpen) history.back(); else hideSheet(); }
-window.addEventListener('popstate', () => { if (sheetOpen) { sheetOpen = false; hideSheet(); } });
+// Geri tuşu: önce açık pencereyi kapatır; alt sayfadaysa (Ayarlar, Kategoriler) önceki ekrana döner.
+window.addEventListener('popstate', (e) => {
+  if (sheetOpen) { sheetOpen = false; hideSheet(); return; }
+  if (e.state?.view && e.state.view !== ui.view) { ui.view = e.state.view; render(); window.scrollTo(0, 0); }
+});
+const SUB_PAGES = ['settings', 'cats'];
+function goTo(view) {
+  if (view === ui.view) return;
+  ui.view = view;
+  if (SUB_PAGES.includes(view)) history.pushState({ view }, '');
+  else history.replaceState({ view }, '');
+  render();
+  window.scrollTo(0, 0);
+}
 
 /* ---------------------------- işlem formu ---------------------------- */
 
 let form = null;
 
 function openTxForm(init = {}) {
-  form = { id: null, type: 'expense', amountText: '', categoryId: null, date: todayISO(), note: '', ...init };
+  form = { id: null, type: 'expense', amountText: '', categoryId: null, date: todayISO(), note: '', accountId: init.id ? '' : lastAccountId(), ...init };
   renderTxForm(!form.id);
 }
 
@@ -750,6 +730,7 @@ function renderTxForm(focusAmount = false) {
         <button class="chip" data-action="form-date" data-val="${y}">Dün</button>
       </div>
     </div>
+    ${accountPicker(form.accountId, form.type)}
     <div class="field">
       <label>Not</label>
       <input id="f-note" placeholder="İsteğe bağlı (ör. A101, Ali'ye borç…)" value="${esc(form.note)}" maxlength="200">
@@ -769,7 +750,8 @@ function saveTx(again) {
   if (!form.categoryId) { toast('Bir kategori seç'); return; }
   if (!form.date) { toast('Tarih seç'); return; }
   const now = Date.now();
-  const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), updatedAt: now };
+  const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), accountId: form.accountId || null, updatedAt: now };
+  if (!form.id) rememberAccount(form.accountId);
   const budgetBefore = budgetSnapshot(form.date);
   if (form.id) {
     const tx = db.transactions.find((x) => x.id === form.id);
@@ -948,7 +930,7 @@ function exportCsv() {
     const d = fromISO(t.date);
     lines.push([
       `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`,
-      t.type === 'income' ? 'Gelir' : 'Gider',
+      t.type === 'income' ? 'Gelir' : t.type === 'transfer' ? 'Transfer' : 'Gider',
       (cm[t.categoryId] || MISSING_CAT).name,
       (t.type === 'income' ? '' : '-') + (t.amount / 100).toFixed(2).replace('.', ','),
       t.note,
@@ -977,11 +959,12 @@ function importJson(file) {
 /* ------------------------------ olaylar ------------------------------ */
 
 const actions = {
-  'nav': (el) => { ui.view = el.dataset.view; render(); window.scrollTo(0, 0); },
+  'nav': (el) => goTo(el.dataset.view),
   'add-tx': () => openTxForm({ type: ui.view === 'cats' ? ui.catTab : 'expense' }),
   'edit-tx': (el) => {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
-    if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '' });
+    if (t?.type === 'transfer') openTransfer({ id: t.id, fromId: t.fromId || '', toId: t.toId || '', amountText: amountToInput(t.amount), date: t.date, note: t.note || '' });
+    else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '' });
   },
   'close-sheet': () => closeSheet(),
 
@@ -1154,7 +1137,7 @@ async function initSync() {
   }
 }
 
-const arrFor = (kind) => (kind === 'tx' ? db.transactions : kind === 'cat' ? db.categories : db.budgets);
+const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts })[kind];
 const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
 const userDoc = (kind, id) => kind === 'set'
   ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
@@ -1173,10 +1156,10 @@ function startListening() {
   if (firstTime) db.sync = { uid, lastSrv: 0 };
   const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
   const remoteTimes = {};
-  let waiting = 4;
+  let waiting = 6;
   setSyncState('syncing');
 
-  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['meta', 'set']]) {
+  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['meta', 'set']]) {
     let first = true;
     const q = fs.query(userCol(name), fs.where('srv', '>', since));
     const unsub = fs.onSnapshot(q, (snap) => {
@@ -1237,6 +1220,8 @@ function reconcileLocal(remoteTimes) {
   for (const t of db.transactions) if ((t.updatedAt || 0) > rt(`tx:${t.id}`)) touch('tx', t.id);
   for (const c of db.categories) if ((c.updatedAt || 0) > rt(`cat:${c.id}`)) touch('cat', c.id);
   for (const b of db.budgets) if ((b.updatedAt || 0) > rt(`bud:${b.id}`)) touch('bud', b.id);
+  for (const r of db.recurring) if ((r.updatedAt || 0) > rt(`rec:${r.id}`)) touch('rec', r.id);
+  for (const a of db.accounts) if ((a.updatedAt || 0) > rt(`acc:${a.id}`)) touch('acc', a.id);
   for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
   if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
 }
