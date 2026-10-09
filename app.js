@@ -40,7 +40,7 @@ const DEFAULT_CATEGORIES = {
     ['Sağlık', '🏥'], ['İlaç', '💊'], ['Spor', '🏋️'], ['Eğitim / Kurs', '🎓'], ['Kitap', '📖'], ['Kırtasiye', '✏️'],
     ['Eğlence', '🎉'], ['Sinema / Konser', '🎬'], ['Oyun', '🎮'], ['Hobi', '🎨'], ['Seyahat', '✈️'], ['Konaklama', '🏨'],
     ['Hediye', '🎁'], ['Bağış', '🤲'], ['Evcil hayvan', '🐾'], ['Ev eşyası', '🛋️'], ['Temizlik', '🧹'], ['Elektronik', '💻'],
-    ['Tamir / Bakım', '🔧'], ['Sigorta', '🛡️'], ['Vergi / Harç', '🧾'], ['Kredi kartı ödemesi', '💳'], ['Kredi / Borç', '🏦'],
+    ['Tamir / Bakım', '🔧'], ['Sigorta', '🛡️'], ['Vergi / Harç', '🧾'], ['Kredi kartı ödemesi', '💳'], ['Kredi / Borç', '🏦'], ['Banka masrafı', '🏧'],
     ['Sigara', '🚬'], ['Çocuk', '🧸'], ['Diğer', '📦'],
   ],
   income: [
@@ -160,7 +160,7 @@ const ui = {
   period: { mode: 'month', anchor: todayISO(), from: todayISO(), to: todayISO() },
   homeDonut: 'expense',
   reportCat: 'expense',
-  txFilter: { q: '', type: 'all', cat: '' },
+  txFilter: { q: '', type: 'all', cat: '', acc: '' },
   catTab: 'expense',
 };
 try {
@@ -454,6 +454,7 @@ function viewTx() {
   const list = sortTx(txIn(per).filter((t) => {
     if (f.type !== 'all' && t.type !== f.type) return false;
     if (f.cat && t.categoryId !== f.cat) return false;
+    if (f.acc && t.accountId !== f.acc && t.fromId !== f.acc && t.toId !== f.acc) return false;
     if (q) {
       const c = cm[t.categoryId] || MISSING_CAT;
       const hay = `${c.name} ${t.note || ''} ${amountToInput(t.amount)}`.toLocaleLowerCase('tr');
@@ -485,6 +486,10 @@ function viewTx() {
           ${catOpts('expense', 'Gider')}${catOpts('income', 'Gelir')}
         </select>
       </div>
+      ${db.accounts.length ? `<select data-change="tx-acc" aria-label="Kart / hesap filtresi">
+        <option value="">Tüm kartlar ve hesaplar</option>
+        ${db.accounts.map((a) => `<option value="${a.id}" ${f.acc === a.id ? 'selected' : ''}>${accIcon(a)} ${esc(accLabel(a))}</option>`).join('')}
+      </select>` : ''}
     </div>
     <div class="mini-stats" style="margin:4px 4px 0">
       <span>${list.length} işlem</span>
@@ -629,7 +634,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -734,6 +739,7 @@ function renderTxForm(focusAmount = false) {
       <input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(form.amountText)}" aria-label="Tutar">
       <span>${esc(db.settings.currency)}</span>
     </div>
+    ${accountPicker(form.accountId, form.type)}
     <div class="field">
       <label>Kategori</label>
       <div class="cat-grid">
@@ -749,7 +755,6 @@ function renderTxForm(focusAmount = false) {
         <button class="chip" data-action="form-date" data-val="${y}">Dün</button>
       </div>
     </div>
-    ${accountPicker(form.accountId, form.type)}
     <div class="field">
       <label>Not</label>
       <input id="f-note" placeholder="İsteğe bağlı (ör. A101, Ali'ye borç…)" value="${esc(form.note)}" maxlength="200">
@@ -796,19 +801,23 @@ function saveTx(again) {
 }
 
 function deleteTx(id) {
-  const i = db.transactions.findIndex((x) => x.id === id);
-  if (i < 0) return;
-  const [tx] = db.transactions.splice(i, 1);
-  db.deleted.push({ id, kind: 'tx', at: Date.now(), data: tx });
-  touch('tx', id);
+  // Transferle birlikte ona bağlı komisyon kaydı da silinir
+  const ids = new Set([id, ...db.transactions.filter((x) => x.feeOf === id).map((x) => x.id)]);
+  const removed = db.transactions.filter((x) => ids.has(x.id));
+  if (!removed.length) return;
+  db.transactions = db.transactions.filter((x) => !ids.has(x.id));
+  const now = Date.now();
+  for (const tx of removed) { db.deleted.push({ id: tx.id, kind: 'tx', at: now, data: tx }); touch('tx', tx.id); }
   save();
   closeSheet();
   render();
   toast('İşlem silindi', 'Geri al', () => {
-    tx.updatedAt = Date.now();
-    db.transactions.push(tx);
-    db.deleted = db.deleted.filter((d) => d.id !== id);
-    touch('tx', id);
+    for (const tx of removed) {
+      tx.updatedAt = Date.now();
+      db.transactions.push(tx);
+      touch('tx', tx.id);
+    }
+    db.deleted = db.deleted.filter((d) => !ids.has(d.id));
     save();
     render();
   });
@@ -982,7 +991,8 @@ const actions = {
   'add-tx': () => openTxForm({ type: ui.view === 'cats' ? ui.catTab : 'expense' }),
   'edit-tx': (el) => {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
-    if (t?.type === 'transfer') openTransfer({ id: t.id, fromId: t.fromId || '', toId: t.toId || '', amountText: amountToInput(t.amount), date: t.date, note: t.note || '' });
+    if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
+    if (t?.type === 'transfer') openTransfer({ id: t.id });
     else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '' });
   },
   'close-sheet': () => closeSheet(),
@@ -1077,6 +1087,7 @@ const changes = {
   'period-from': (el) => { if (el.value) { ui.period.from = el.value; render(); } },
   'period-to': (el) => { if (el.value) { ui.period.to = el.value; render(); } },
   'tx-cat': (el) => { ui.txFilter.cat = el.value; render(); },
+  'tx-acc': (el) => { ui.txFilter.acc = el.value; render(); },
   'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
   'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
   'set-currency': (el) => { setSetting('currency', el.value.trim() || '₺'); render(); toast('Kaydedildi ✓'); },

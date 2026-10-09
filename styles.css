@@ -411,3 +411,13 @@ input.invalid { border-color: var(--exp) !important; }
 @keyframes fade { from { opacity: 0; } }
 
 .err { text-align: left; white-space: pre-wrap; word-break: break-word; font-size: 11px; background: var(--surface-2); border-radius: 10px; padding: 10px; margin: 0 0 14px; max-height: 160px; overflow: auto; }
+
+/* ---------- kart seçimi ve transfer özeti ---------- */
+.acc-info { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.acc-info b { color: var(--text); }
+.xsum { background: var(--surface-2); border-radius: 14px; padding: 12px 14px; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.xsum .muted { font-size: 13px; }
+.xafter { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; font-size: 12px; color: var(--muted); }
+.xafter b { color: var(--text); }
+.xafter b.inc { color: var(--inc); }
+.xafter b.exp { color: var(--exp); }

@@ -410,7 +410,7 @@ Object.assign(actions, {
   'rec-unskip': () => setSkip(false),
   'rec-undo': (el) => { if (confirm('Onay geri alınsın mı? Oluşan kayıt silinir, tekrar "bekliyor" olur.')) deleteTx(el.dataset.tx); },
   'rc-date': (el) => { $('#rc-date').value = el.dataset.val; },
-  'rc-acc': (el) => { recConfirm.accountId = el.dataset.id; $$('[data-action="rc-acc"]').forEach((b) => b.classList.toggle('on', b === el)); },
+  'rc-acc': (el) => { recConfirm.accountId = pickAccount(el); },
   'rec-shift': (el) => { ui.recAnchor = shiftedPeriod(Number(el.dataset.dir), { mode: 'month', anchor: ui.recAnchor }).anchor; render(); },
   'rec-today': () => { ui.recAnchor = todayISO(); render(); },
   'rf-type': (el) => { syncRecForm(); if (recForm.type !== el.dataset.val) { recForm.type = el.dataset.val; recForm.categoryId = null; } renderRecForm(); },
