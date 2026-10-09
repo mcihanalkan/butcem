@@ -14,4 +14,4 @@ window.FIREBASE_CONFIG = {
 // window.APP_CHECK_SITE_KEY = '6LdZM-ctAAAAAGAQe4YnUyp6s8h1b8whtwd-Djqu';
 
 // Bildirimler için Firebase Cloud Messaging "Web Push sertifikası" (genel anahtar; gizli değil).
-// window.FCM_VAPID_KEY = '...';
+window.FCM_VAPID_KEY = 'BJNI-n_65cmPXPnGOrZY50dvdhFnYJuRqoJa7GmNwFKNz0UymxaP78GZRXhuIMxJqHH_m504KR4PGLQF9uZC2sI';
