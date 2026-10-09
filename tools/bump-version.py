@@ -14,6 +14,7 @@ VERSIONED_FILES = [
     'debts.js',
     'accounts.js',
     'ai.js',
+    'scan.js',
     'home.js',
     'start.js',
 ]

@@ -150,7 +150,8 @@ function localInsights() {
 
 /* ------------------------------ model ------------------------------ */
 
-async function aiGenerate(prompt, json) {
+// models: belirli bir model sırası (verilirse çalışan model hatırlanmaz)
+async function aiGenerate(prompt, json, system = AI_SYSTEM, models = null) {
   if (!sync.app) await initSync();
   if (!sync.app) throw new Error('offline');
   await sync.appCheckReady; // güvenlik doğrulaması hazır olmadan istek gönderme
@@ -160,21 +161,21 @@ async function aiGenerate(prompt, json) {
   // En son çalışan model önce denenir; bir model hata verirse sıradakine geçilir
   let good = '';
   try { good = localStorage.getItem('butce.aiModel') || ''; } catch {}
-  const order = good && AI_MODELS.includes(good) ? [good, ...AI_MODELS.filter((m) => m !== good)] : AI_MODELS;
+  const order = models || (good && AI_MODELS.includes(good) ? [good, ...AI_MODELS.filter((m) => m !== good)] : AI_MODELS);
   for (const name of order) {
     try {
       // Düşük düşünme seviyesi: aynı kalitede ~3 kat daha hızlı cevap. Desteklemeyen modelde ayarsız tekrar denenir.
       const base = json ? { responseMimeType: 'application/json', temperature: 0.3 } : { temperature: 0.5 };
       // Askıda kalan istek kullanıcıyı kilitlemesin: 45 sn içinde cevap gelmezse sıradaki modele geç
       const run = (cfg) => Promise.race([
-        mod.getGenerativeModel(ai, { model: name, systemInstruction: AI_SYSTEM, generationConfig: cfg }).generateContent(prompt),
+        mod.getGenerativeModel(ai, { model: name, systemInstruction: system, generationConfig: cfg }).generateContent(prompt),
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 45000)),
       ]);
       let res;
       try { res = await run({ ...base, thinkingConfig: { thinkingLevel: 'LOW' } }); }
       catch (e) { if (/thinking/i.test(String(e?.message))) res = await run(base); else throw e; }
       aiState.unavailable = false;
-      try { localStorage.setItem('butce.aiModel', name); } catch {}
+      if (!models) try { localStorage.setItem('butce.aiModel', name); } catch {}
       return res.response.text();
     } catch (e) {
       lastErr = e;

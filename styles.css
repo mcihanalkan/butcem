@@ -576,3 +576,16 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 
 /* reCAPTCHA rozeti "+" butonunun üstüne gelmesin (bilgilendirme notu Ayarlar'da) */
 .grecaptcha-badge { visibility: hidden !important; }
+
+/* ---------- fiş / fatura tarama ---------- */
+.scan-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 14px; border-radius: 16px; background: var(--surface-2); text-align: left; }
+.scan-btn b { display: block; font-size: 14px; }
+.scan-btn small { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
+.scan-btn > span:nth-child(2) { flex: 1; min-width: 0; }
+.scan-ico { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: var(--surface-2); color: var(--text); }
+.scan-ico.sm { width: 40px; height: 40px; border-radius: 13px; background: var(--ink); color: var(--ink-text); flex: none; }
+.scan-ico.warn { color: var(--warn); }
+.scan-loading { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 18px 8px 10px; }
+.scan-loading small { color: var(--muted); font-size: 13px; font-weight: 500; max-width: 320px; }
+.scan-loading .scan-ico:not(.warn) { animation: scanpulse 1.4s ease-in-out infinite; }
+@keyframes scanpulse { 50% { transform: scale(.92); opacity: .6; } }

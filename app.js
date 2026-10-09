@@ -669,7 +669,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 23;
+const APP_VERSION = 25;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -772,6 +772,7 @@ function renderTxForm(focusAmount = false) {
       <button data-action="form-type" data-val="expense" class="${form.type === 'expense' ? 'on' : ''}">− Gider</button>
       <button data-action="form-type" data-val="income" class="${form.type === 'income' ? 'on' : ''}">+ Gelir</button>
     </div>
+    ${form.id ? '' : `<button class="scan-btn" data-action="scan-start"><span class="scan-ico sm">${icon('camera', 20)}</span><span><b>Fiş veya fatura tara</b><small>Tutar, tarih ve mağaza otomatik dolsun</small></span><span class="chev">${icon('chevron-right', 18)}</span></button>`}
     <div class="field amount-field">
       <input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(form.amountText)}" aria-label="Tutar">
       <span>${esc(db.settings.currency)}</span>
