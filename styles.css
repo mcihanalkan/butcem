@@ -421,3 +421,57 @@ input.invalid { border-color: var(--exp) !important; }
 .xafter b { color: var(--text); }
 .xafter b.inc { color: var(--inc); }
 .xafter b.exp { color: var(--exp); }
+
+/* ---------- para gönder ---------- */
+.xpair { position: relative; display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.xacc {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; border-radius: 16px;
+  background: var(--surface-2); border: 2px solid transparent; text-align: left; transition: border-color .15s;
+}
+.xacc.open { border-color: var(--accent); }
+.xacc-ico { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 22px; flex: none; background: color-mix(in srgb, var(--c) 22%, var(--surface)); }
+.xacc-main { flex: 1; min-width: 0; }
+.xacc-main small { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.xacc-main b { display: block; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xacc-main span { display: block; font-size: 12px; color: var(--muted); }
+.xacc-chev { color: var(--muted); font-size: 14px; }
+.xswap {
+  align-self: center; width: 38px; height: 38px; margin: -21px 0; z-index: 1; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--surface-2); box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  font-size: 18px; text-align: center; color: var(--accent); font-weight: 700;
+}
+.xswap:disabled { opacity: .4; }
+.xpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; padding: 2px 0 6px; }
+.xpick button { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 2px solid var(--border); text-align: left; }
+.xpick button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.xpick span { font-size: 18px; }
+.xpick b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xpick small { font-size: 11px; color: var(--muted); }
+.xamount { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin: 4px 0 10px; }
+.xamount input {
+  width: auto; max-width: 75%; min-width: 120px; field-sizing: content; background: transparent; border: 0; padding: 0;
+  font-size: 40px; font-weight: 800; text-align: center; letter-spacing: -.02em; min-height: 0;
+}
+.xamount input:focus { border: 0; }
+.xamount span { font-size: 26px; font-weight: 700; color: var(--muted); }
+.xchips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+.xchips button { display: flex; flex-direction: column; align-items: center; padding: 7px 12px; border-radius: 12px; background: var(--surface-2); font-weight: 700; font-size: 13px; }
+.xchips small { font-size: 10px; font-weight: 600; color: var(--muted); }
+.xfee-add { display: block; width: 100%; padding: 12px; border-radius: 14px; border: 1.5px dashed var(--border); color: var(--muted); font-weight: 600; font-size: 14px; text-align: center; margin-bottom: 12px; }
+.xfee { background: var(--surface-2); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.xfee-in { position: relative; flex: 1; }
+.xfee-in input { background: var(--surface); padding-right: 30px; text-align: right; font-weight: 700; }
+.xfee-in span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.xfee .seg { background: var(--surface); }
+.receipt {
+  position: relative; background: var(--surface-2); border-radius: 16px; padding: 14px 16px; font-size: 14px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.xr-line { display: flex; justify-content: space-between; gap: 10px; }
+.xr-line.muted { font-size: 13px; }
+.xr-line.big { font-size: 15px; }
+.xr-line.big b { font-size: 18px; }
+.xr-sep { border-top: 1.5px dashed var(--border); margin: 3px 0; }
+.xr-after { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); }
+.xr-after i { font-style: normal; opacity: .6; }
+.xsend { font-size: 16px; min-height: 52px; }

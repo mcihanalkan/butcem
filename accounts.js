@@ -292,6 +292,7 @@ function openTransfer(init = {}) {
       });
     }
   }
+  if (!xfer.toId) xfer.picking = 'to';
   renderTransfer();
 }
 
@@ -306,27 +307,76 @@ function xferCalc() {
 }
 
 // Hesabın şu anki durumu ve işlemden sonraki hali (kredi kartında borç, diğerlerinde bakiye)
-function accAfter(a, delta) {
+// Hesabın kısa durumu (kartlarda borç, diğerlerinde bakiye)
+function accState(a) {
+  if (!a) return 'Başka bir yerden';
+  const v = accBalance(a);
+  return a.kind === 'credit' ? `Borç ${money(v)}` : `Bakiye ${money(v)}`;
+}
+
+// İşlemden sonra hesabın durumu: kredi kartında borç, diğerlerinde bakiye
+function accAfterRow(a, delta) {
   const now = accBalance(a);
-  const credit = a.kind === 'credit';
-  const label = credit ? 'borç' : 'bakiye';
-  return `<span class="after">${accIcon(a)} <b>${esc(a.name)}</b> ${label}: ${moneyRound(now)} → <b class="${credit ? (delta < 0 ? 'inc' : 'exp') : delta < 0 ? 'exp' : 'inc'}">${moneyRound(now + delta)}</b></span>`;
+  const next = now + delta;
+  const good = a.kind === 'credit' ? delta < 0 : delta > 0;
+  return `<div class="xr-after"><span>${accIcon(a)} ${esc(a.name)}</span><span>${money(now)} <i>→</i> <b class="${good ? 'inc' : 'exp'}">${money(next)}</b></span></div>`;
 }
 
 function transferPreview() {
   const c = xferCalc();
   const from = accById(xfer.fromId), to = accById(xfer.toId);
-  if (!c.ok || !to) return '<p class="muted small" style="margin:0">Tutarı girince özet burada görünecek.</p>';
-  const showAfter = !xfer.id; // düzenlemede mevcut kayıt zaten bakiyede, önizleme yanıltmasın
+  if (!c.ok || !to) return '';
   const credit = (a) => a.kind === 'credit';
-  return `<div class="xsum">
-    <div class="between"><span>Çıkan · ${from ? esc(from.name) : 'hesap dışı'}</span><b>${money(c.out)}</b></div>
-    ${c.fee ? `<div class="between muted"><span>Komisyon / masraf</span><span>${money(c.fee)}</span></div>` : ''}
-    <div class="between"><span>Geçen · ${esc(to.name)}</span><b class="inc">${money(c.received)}</b></div>
-    ${showAfter ? `<div class="xafter">
-      ${from ? accAfter(from, credit(from) ? c.out : -c.out) : ''}
-      ${accAfter(to, credit(to) ? -c.received : c.received)}
-    </div>` : ''}
+  return `<div class="receipt">
+    <div class="xr-line"><span>Gönderilen</span><b>${money(c.sent)}</b></div>
+    ${c.fee ? `<div class="xr-line muted"><span>Komisyon ${xfer.feeMode === 'deduct' ? '(tutardan düştü)' : '(ayrıca)'}</span><span>${xfer.feeMode === 'deduct' ? '−' : '+'}${money(c.fee)}</span></div>` : ''}
+    <div class="xr-sep"></div>
+    <div class="xr-line"><span>Çıkan <small class="muted">· ${from ? esc(from.name) : 'hesap dışı'}</small></span><b class="exp">${money(c.out)}</b></div>
+    <div class="xr-line big"><span>Geçen <small class="muted">· ${esc(to.name)}</small></span><b class="inc">${money(c.received)}</b></div>
+    ${xfer.id ? '' : `<div class="xr-sep"></div>
+      ${from ? accAfterRow(from, credit(from) ? c.out : -c.out) : ''}
+      ${accAfterRow(to, credit(to) ? -c.received : c.received)}`}
+  </div>`;
+}
+
+function xferButtonLabel() {
+  const c = xferCalc();
+  const to = accById(xfer.toId);
+  const verb = to?.kind === 'credit' ? 'öde' : 'gönder';
+  return c.ok ? `${money(c.out)} ${verb}` : (to?.kind === 'credit' ? 'Ödemeyi kaydet' : 'Transferi kaydet');
+}
+
+function refreshTransfer() {
+  syncTransfer();
+  const p = $('#x-preview');
+  if (p) p.innerHTML = transferPreview();
+  const b = $('#x-save');
+  if (b) b.textContent = xferButtonLabel();
+}
+
+function xferAccCard(role) {
+  const id = role === 'from' ? xfer.fromId : xfer.toId;
+  const a = accById(id);
+  const empty = role === 'to' && !a;
+  return `<button class="xacc ${xfer.picking === role ? 'open' : ''}" data-action="x-pick" data-role="${role}">
+    <span class="xacc-ico" style="--c:${a?.color || '#64748b'}">${a ? accIcon(a) : role === 'from' ? '🌐' : '＋'}</span>
+    <span class="xacc-main">
+      <small>${role === 'from' ? 'Gönderen' : 'Alıcı'}</small>
+      <b>${empty ? 'Hesap seç' : a ? esc(accLabel(a)) : 'Hesap dışı'}</b>
+      <span>${empty ? 'Paranın gideceği yer' : accState(a)}</span>
+    </span>
+    <span class="xacc-chev">▾</span>
+  </button>`;
+}
+
+function xferPickList(role) {
+  if (xfer.picking !== role) return '';
+  const cur = role === 'from' ? xfer.fromId : xfer.toId;
+  const other = role === 'from' ? xfer.toId : xfer.fromId;
+  return `<div class="xpick">
+    ${db.accounts.filter((a) => a.id !== other).map((a) => `<button class="${cur === a.id ? 'on' : ''}" data-action="x-choose" data-role="${role}" data-id="${a.id}">
+      <span>${accIcon(a)}</span><b>${esc(a.name)}</b><small>${accState(a)}</small></button>`).join('')}
+    ${role === 'from' ? `<button class="${!cur ? 'on' : ''}" data-action="x-choose" data-role="from" data-id=""><span>🌐</span><b>Hesap dışı</b><small>Başka bir yerden</small></button>` : ''}
   </div>`;
 }
 
@@ -334,45 +384,59 @@ function renderTransfer() {
   const f = xfer;
   const to = accById(f.toId);
   const s = to?.kind === 'credit' ? cardStatus(to) : null;
-  const opt = (sel, empty) => `${empty ? `<option value="">${empty}</option>` : '<option value="">Seç</option>'}${db.accounts.map((a) => `<option value="${a.id}" ${sel === a.id ? 'selected' : ''}>${accIcon(a)} ${esc(accLabel(a))}</option>`).join('')}`;
+  const feeOpen = f.showFee || !!f.feeText.trim();
   openSheet(`
-    <div class="sheet-head"><h2>${s ? 'Kart ödemesi' : 'Para transferi'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-    <div class="row field">
-      <div><label class="lbl">Nereden</label><select id="x-from" data-change="x-acc">${opt(f.fromId, 'Hesap dışı')}</select></div>
-      <div><label class="lbl">Nereye</label><select id="x-to" data-change="x-acc">${opt(f.toId)}</select></div>
+    <div class="sheet-head"><h2>${s ? 'Kart ödemesi' : 'Para gönder'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+
+    <div class="xpair">
+      ${xferAccCard('from')}
+      ${xferPickList('from')}
+      <button class="xswap" data-action="x-swap" aria-label="Yer değiştir" ${f.fromId && f.toId ? '' : 'disabled'}>⇅</button>
+      ${xferAccCard('to')}
+      ${xferPickList('to')}
     </div>
-    <div class="field"><label class="lbl">Gönderilen tutar</label>
-      <div class="amount-field"><input id="x-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(f.sentText)}" data-input="x-calc"><span>${esc(db.settings.currency)}</span></div>
-      ${s ? `<div class="chips" style="flex-wrap:wrap">
-        ${s.minDue ? `<button class="chip" data-action="x-amt" data-val="${s.minDue}">Asgari ${moneyRound(s.minDue)}</button>` : ''}
-        ${s.remaining ? `<button class="chip" data-action="x-amt" data-val="${s.remaining}">Dönem borcu ${moneyRound(s.remaining)}</button>` : ''}
-        ${s.debt > 0 ? `<button class="chip" data-action="x-amt" data-val="${s.debt}">Tüm borç ${moneyRound(s.debt)}</button>` : ''}
-      </div>` : ''}
+
+    <div class="xamount">
+      <input id="x-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.sentText)}" data-input="x-calc" aria-label="Tutar">
+      <span>${esc(db.settings.currency)}</span>
     </div>
-    <div class="field"><label class="lbl">Komisyon / masraf <span class="muted">(yoksa boş bırak)</span></label>
-      <div class="row" style="align-items:center">
-        <input id="x-fee" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(f.feeText)}" data-input="x-calc" style="flex:.8">
-        <div class="seg" style="flex:1.4">
-          <button data-action="x-mode" data-val="extra" class="${f.feeMode === 'extra' ? 'on' : ''}">Ayrıca alındı</button>
-          <button data-action="x-mode" data-val="deduct" class="${f.feeMode === 'deduct' ? 'on' : ''}">Tutardan düştü</button>
+    ${s && s.debt > 0 ? `<div class="xchips">
+      ${s.minDue ? `<button data-action="x-amt" data-val="${s.minDue}"><small>Asgari</small>${money(s.minDue)}</button>` : ''}
+      ${s.remaining ? `<button data-action="x-amt" data-val="${s.remaining}"><small>Dönem borcu</small>${money(s.remaining)}</button>` : ''}
+      <button data-action="x-amt" data-val="${s.debt}"><small>Tüm borç</small>${money(s.debt)}</button>
+    </div>` : ''}
+
+    ${feeOpen ? `<div class="xfee">
+      <div class="between"><span class="lbl" style="margin:0">Komisyon / masraf</span><button class="link small" data-action="x-fee-off">Kaldır</button></div>
+      <div class="row" style="align-items:center;margin-top:6px">
+        <div class="xfee-in"><input id="x-fee" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.feeText)}" data-input="x-calc"><span>${esc(db.settings.currency)}</span></div>
+        <div class="seg" style="flex:1.5">
+          <button data-action="x-mode" data-val="extra" class="${f.feeMode === 'extra' ? 'on' : ''}">Ayrıca</button>
+          <button data-action="x-mode" data-val="deduct" class="${f.feeMode === 'deduct' ? 'on' : ''}">Tutardan</button>
         </div>
       </div>
-    </div>
+    </div>` : `<button class="xfee-add" data-action="x-fee-on">＋ Komisyon / masraf ekle</button>`}
+
     <div id="x-preview">${transferPreview()}</div>
-    <div class="row field" style="margin-top:14px">
-      <div><label class="lbl">Tarih</label><input type="date" id="x-date" value="${f.date}"></div>
-      <div><label class="lbl">Not</label><input id="x-note" value="${esc(f.note)}" maxlength="80" placeholder="İsteğe bağlı"></div>
+
+    <div class="row" style="margin-top:12px">
+      <input type="date" id="x-date" value="${f.date}" aria-label="Tarih">
+      <input id="x-note" value="${esc(f.note)}" maxlength="80" placeholder="Not (isteğe bağlı)" aria-label="Not">
     </div>
+
     <div class="actions">
-      ${f.id ? `<button class="btn danger" data-action="delete-tx" data-id="${f.id}">Sil</button>` : ''}
-      <button class="btn primary" data-action="x-save">Kaydet</button>
+      ${f.id ? `<button class="btn danger" data-action="delete-tx" data-id="${f.id}" style="flex:.5">Sil</button>` : ''}
+      <button class="btn primary xsend" id="x-save" data-action="x-save">${xferButtonLabel()}</button>
     </div>
   `);
 }
 
 function syncTransfer() {
   if (!xfer || !$('#x-amount')) return;
-  Object.assign(xfer, { fromId: $('#x-from').value, toId: $('#x-to').value, sentText: $('#x-amount').value, feeText: $('#x-fee').value, date: $('#x-date').value, note: $('#x-note').value });
+  xfer.sentText = $('#x-amount').value;
+  xfer.feeText = $('#x-fee') ? $('#x-fee').value : xfer.feeText;
+  xfer.date = $('#x-date').value;
+  xfer.note = $('#x-note').value;
 }
 
 function saveTransfer() {
@@ -467,19 +531,24 @@ Object.assign(actions, {
   'af-save': () => saveAcc(),
   'af-delete': () => deleteAcc(),
   'xfer-new': (el) => openTransfer({ toId: el.dataset.to || '', fromId: el.dataset.from || '' }),
-  'x-amt': (el) => { $('#x-amount').value = amountToInput(Number(el.dataset.val)); syncTransfer(); $('#x-preview').innerHTML = transferPreview(); },
-  'x-mode': (el) => { syncTransfer(); xfer.feeMode = el.dataset.val; $$('[data-action="x-mode"]').forEach((b) => b.classList.toggle('on', b === el)); $('#x-preview').innerHTML = transferPreview(); },
+  'x-amt': (el) => { $('#x-amount').value = amountToInput(Number(el.dataset.val)); refreshTransfer(); },
+  'x-mode': (el) => { xfer.feeMode = el.dataset.val; $$('[data-action="x-mode"]').forEach((b) => b.classList.toggle('on', b === el)); refreshTransfer(); },
+  'x-pick': (el) => { syncTransfer(); xfer.picking = xfer.picking === el.dataset.role ? null : el.dataset.role; renderTransfer(); },
+  'x-choose': (el) => {
+    syncTransfer();
+    if (el.dataset.role === 'from') xfer.fromId = el.dataset.id; else xfer.toId = el.dataset.id;
+    xfer.picking = !xfer.toId ? 'to' : null;
+    renderTransfer();
+  },
+  'x-swap': () => { syncTransfer(); [xfer.fromId, xfer.toId] = [xfer.toId, xfer.fromId]; xfer.picking = null; renderTransfer(); },
+  'x-fee-on': () => { syncTransfer(); xfer.showFee = true; renderTransfer(); setTimeout(() => $('#x-fee')?.focus(), 50); },
+  'x-fee-off': () => { syncTransfer(); xfer.showFee = false; xfer.feeText = ''; renderTransfer(); },
   'x-save': () => saveTransfer(),
   'form-acc': (el) => { form.accountId = pickAccount(el); },
-});
-
-Object.assign(changes, {
-  'x-acc': () => { syncTransfer(); renderTransfer(); },
 });
 
 document.addEventListener('input', (e) => {
   if (e.target.dataset?.input !== 'x-calc' || !xfer) return;
   e.target.classList.remove('invalid');
-  syncTransfer();
-  $('#x-preview').innerHTML = transferPreview();
+  refreshTransfer();
 });

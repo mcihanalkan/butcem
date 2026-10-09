@@ -179,7 +179,8 @@ const nf1 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
 const nf0 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 });
 const money = (k) => `${nf.format(k / 100)} ${db.settings.currency}`;
 const num = (k) => nf.format(k / 100);
-const moneyRound = (k) => `${nf0.format(k / 100)} ${db.settings.currency}`;
+// Tutarlar her yerde kuruşuyla tam gösterilir (yuvarlama yok)
+const moneyRound = (k) => money(k);
 const signed = (k, type) => `${type === 'income' ? '+' : '−'}${money(k)}`;
 // Grafik eksenleri için kısa yazım: 12,5 bin / 1,2 Mn
 function compact(k) {
@@ -634,7 +635,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 function errorCard(e) {
   return `<div class="card empty-card">
