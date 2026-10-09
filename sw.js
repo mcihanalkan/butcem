@@ -1,7 +1,7 @@
 // Uygulama dosyalarını önbelleğe alır: internet yokken de açılır.
 // Kendi dosyalarımız: önce ağdan dener (güncel sürüm gelsin), olmazsa önbellekten verir.
 // Firebase kütüphaneleri (gstatic, sürüm numaralı): önbellekte varsa oradan verir.
-const CACHE = 'butce-v4';
+const CACHE = 'butce-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -21,7 +21,8 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
+  // cache: 'reload' → tarayıcının HTTP önbelleğindeki eski kopyayı değil, sunucudakini al
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -50,7 +51,8 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    // no-cache: GitHub Pages 10 dk önbellek süresi veriyor; her seferinde sunucuya sor (değişmediyse hızlı 304 döner)
+    fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }))
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));
