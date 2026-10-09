@@ -224,6 +224,13 @@ tfoot td { font-weight: 700; border-bottom: 0; }
 .setting p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 .btn-stack { display: flex; flex-direction: column; gap: 10px; }
 
+/* ---------- senkron ---------- */
+.sync-badge { font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--muted); }
+.sync-badge.ok, .sync-text.ok { color: var(--inc); }
+.sync-badge.error, .sync-text.error { color: var(--exp); }
+.sync-badge.off { color: var(--accent); }
+.sync-text { font-size: 13px !important; }
+
 /* ---------- toast ---------- */
 #toast-root { position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + 90px + env(safe-area-inset-bottom)); z-index: 60; display: flex; justify-content: center; pointer-events: none; padding: 0 16px; }
 .toast {

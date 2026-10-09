@@ -51,12 +51,20 @@ const DEFAULT_CATEGORIES = {
 
 /* ------------------------------ veri ------------------------------ */
 
+// Varsayılan kategoriler her cihazda aynı kimliği alır; senkronda ikiye katlanmasınlar.
+function defCatId(type, name) {
+  const tr = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' };
+  const slug = name.toLocaleLowerCase('tr').replace(/[çğıöşü]/g, (c) => tr[c]).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `d-${type === 'income' ? 'i' : 'e'}-${slug}`;
+}
+
 function freshData() {
   const now = Date.now();
   const cats = [];
   for (const type of ['expense', 'income']) {
     DEFAULT_CATEGORIES[type].forEach(([name, icon], i) => {
-      cats.push({ id: uid() + i, type, name, icon, color: PALETTE[(i * 7 + (type === 'income' ? 5 : 0)) % PALETTE.length], createdAt: now, updatedAt: now });
+      // Zaman 0: hiç dokunulmamış varsayılan kategori, herhangi bir cihazdaki düzenlemeye yenilir.
+      cats.push({ id: defCatId(type, name), type, name, icon, color: PALETTE[(i * 7 + (type === 'income' ? 5 : 0)) % PALETTE.length], createdAt: 0, updatedAt: 0 });
     });
   }
   return {
@@ -64,20 +72,34 @@ function freshData() {
     settings: { currency: '₺', monthStartDay: 1, weekStartDay: 1, theme: 'auto' },
     categories: cats,
     transactions: [],
-    deleted: [], // ileride senkron için: silinen kayıtların izi
+    deleted: [], // silinen kayıtların izi: [{ id, kind: 'tx' | 'cat', at }]
+    pending: {}, // buluta gönderilmeyi bekleyen değişiklikler: { 'tx:<id>': zaman }
+    sync: null, // { uid, lastSrv }
   };
 }
 
 function normalize(d) {
   const base = freshData();
   if (!d || typeof d !== 'object') return base;
-  return {
+  const out = {
     version: 1,
     settings: { ...base.settings, ...(d.settings || {}) },
     categories: Array.isArray(d.categories) ? d.categories : base.categories,
     transactions: Array.isArray(d.transactions) ? d.transactions : [],
-    deleted: Array.isArray(d.deleted) ? d.deleted : [],
+    deleted: (Array.isArray(d.deleted) ? d.deleted : []).map((x) => ({ kind: 'tx', ...x })),
+    pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
+    sync: d.sync || null,
   };
+  // Eski sürümde varsayılan kategoriler rastgele kimlik almıştı: ortak kimliğe taşı.
+  const ids = new Set(out.categories.map((c) => c.id));
+  const remap = {};
+  for (const c of out.categories) {
+    const def = DEFAULT_CATEGORIES[c.type]?.some(([n]) => n === c.name) ? defCatId(c.type, c.name) : null;
+    if (def && c.id !== def && !ids.has(def)) { remap[c.id] = def; ids.add(def); c.id = def; }
+  }
+  if (Object.keys(remap).length) for (const t of out.transactions) if (remap[t.categoryId]) t.categoryId = remap[t.categoryId];
+  for (const c of out.categories) if (c.id.startsWith('d-') && c.updatedAt === c.createdAt) c.createdAt = c.updatedAt = 0;
+  return out;
 }
 
 function loadData() {
@@ -90,9 +112,40 @@ function loadData() {
 
 let db = loadData();
 
-function save() {
+function saveLocal() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
   catch (e) { toast('Kaydedilemedi! Depolama dolu olabilir.'); console.error(e); }
+}
+function save() {
+  saveLocal();
+  schedulePush();
+}
+// Bir kaydın değiştiğini işaretler; senkron açıksa buluta gönderilir.
+function touch(kind, id) { db.pending[`${kind}:${id}`] = Date.now(); }
+function setSetting(key, value) {
+  db.settings[key] = value;
+  db.settings.updatedAt = Date.now();
+  touch('set', 'main');
+  save();
+}
+// Yedek yükleme / sıfırlama gibi toplu değişikliklerde: eskiden olup artık olmayanları sil, kalan her şeyi güncel say.
+function replaceAllData(next) {
+  const now = Date.now();
+  const keep = new Set([...next.transactions, ...next.categories].map((x) => x.id));
+  const tombs = [
+    ...db.transactions.filter((t) => !keep.has(t.id)).map((t) => ({ id: t.id, kind: 'tx', at: now })),
+    ...db.categories.filter((c) => !keep.has(c.id)).map((c) => ({ id: c.id, kind: 'cat', at: now })),
+  ];
+  next.deleted = [...next.deleted.filter((d) => !keep.has(d.id)), ...tombs];
+  next.pending = {};
+  next.sync = db.sync;
+  db = next;
+  for (const t of db.transactions) { t.updatedAt = now; touch('tx', t.id); }
+  for (const c of db.categories) { c.updatedAt = now; touch('cat', c.id); }
+  for (const d of tombs) touch(d.kind, d.id);
+  db.settings.updatedAt = now;
+  touch('set', 'main');
+  save();
 }
 
 /* --------------------------- arayüz durumu --------------------------- */
@@ -399,7 +452,7 @@ function viewHome() {
   const recent = sortTx(list).slice(0, 8);
 
   return `
-    <h1>Özet</h1>
+    <h1 class="between">Özet ${syncBadge()}</h1>
     ${periodBar()}
     <div class="stats">
       <div class="stat"><small>Gelir</small><b class="inc">${money(t.inc)}</b>${prev ? deltaText(t.inc, prev.inc, true) : ''}</div>
@@ -566,6 +619,7 @@ function viewSettings() {
   const s = db.settings;
   return `
     <h1>Ayarlar</h1>
+    ${syncCard()}
     <div class="card">
       <div class="setting">
         <div><b>Ay başlangıç günü</b><p>Maaş günün 9 ise 9 seç: "Ay" görünümü 9'undan sonraki ayın 8'ine kadar sayar.</p></div>
@@ -593,7 +647,7 @@ function viewSettings() {
     </div>
     <div class="card">
       <h3>Yedek & dışa aktarma</h3>
-      <p class="muted" style="margin-top:-4px;font-size:13px">Veriler şimdilik bu cihazın tarayıcısında saklanıyor. Ara ara yedek almanı öneririm.</p>
+      <p class="muted" style="margin-top:-4px;font-size:13px">Veriler bu cihazda saklanır${syncConfigured() ? ', senkron açıksa bulutta da durur' : ''}. Yine de ara ara yedek almanı öneririm.</p>
       <div class="btn-stack">
         <button class="btn" data-action="export-json">⬇️ Yedek al (.json)</button>
         <button class="btn" data-action="import-json">⬆️ Yedekten geri yükle</button>
@@ -721,8 +775,11 @@ function saveTx(again) {
   if (form.id) {
     const tx = db.transactions.find((x) => x.id === form.id);
     if (tx) Object.assign(tx, data);
+    touch('tx', form.id);
   } else {
-    db.transactions.push({ id: uid(), createdAt: now, ...data });
+    const id = uid();
+    db.transactions.push({ id, createdAt: now, ...data });
+    touch('tx', id);
   }
   save();
   render();
@@ -741,13 +798,16 @@ function deleteTx(id) {
   const i = db.transactions.findIndex((x) => x.id === id);
   if (i < 0) return;
   const [tx] = db.transactions.splice(i, 1);
-  db.deleted.push({ id, at: Date.now() });
+  db.deleted.push({ id, kind: 'tx', at: Date.now() });
+  touch('tx', id);
   save();
   closeSheet();
   render();
   toast('İşlem silindi', 'Geri al', () => {
+    tx.updatedAt = Date.now();
     db.transactions.push(tx);
     db.deleted = db.deleted.filter((d) => d.id !== id);
+    touch('tx', id);
     save();
     render();
   });
@@ -815,6 +875,7 @@ function saveCat() {
     id = uid();
     db.categories.push({ id, type: f.type, name: f.name, icon: f.icon, color: f.color, createdAt: now, updatedAt: now });
   }
+  touch('cat', id);
   save();
   render();
   const done = f.onDone;
@@ -839,10 +900,11 @@ function deleteCat() {
     if (!target) return;
     const tName = db.categories.find((c) => c.id === target)?.name;
     if (!confirm(`${used.length} işlem "${tName}" kategorisine taşınacak ve "${f.name}" silinecek. Emin misin?`)) return;
-    used.forEach((t) => { t.categoryId = target; t.updatedAt = now; });
+    used.forEach((t) => { t.categoryId = target; t.updatedAt = now; touch('tx', t.id); });
   } else if (!confirm(`"${f.name}" kategorisi silinsin mi?`)) return;
   db.categories = db.categories.filter((c) => c.id !== f.id);
-  db.deleted.push({ id: f.id, at: now });
+  db.deleted.push({ id: f.id, kind: 'cat', at: now });
+  touch('cat', f.id);
   if (ui.txFilter.cat === f.id) ui.txFilter.cat = '';
   save();
   catForm = null;
@@ -902,8 +964,7 @@ function importJson(file) {
       const d = JSON.parse(r.result);
       if (!Array.isArray(d.transactions) || !Array.isArray(d.categories)) throw new Error('format');
       if (!confirm(`Yedekte ${d.transactions.length} işlem ve ${d.categories.length} kategori var.\nMevcut verilerin YERİNE geçecek. Devam edilsin mi?`)) return;
-      db = normalize(d);
-      save();
+      replaceAllData(normalize(d));
       render();
       toast('Yedek geri yüklendi ✓');
     } catch {
@@ -985,14 +1046,16 @@ const actions = {
   'cat-cancel': () => cancelCat(),
   'cat-delete': () => deleteCat(),
 
+  'sync-login': () => signIn(),
+  'sync-logout': () => signOutSync(),
+  'sync-now': () => { if (sync.user) startListening(); },
   'export-json': () => exportJson(),
   'export-csv': () => exportCsv(),
   'import-json': () => $('#import-file').click(),
   'reset': () => {
     if (!confirm('TÜM işlemler ve kategoriler silinecek. Önce yedek almanı öneririm. Emin misin?')) return;
     if (!confirm('Son kez soruyorum: geri alınamaz. Silinsin mi?')) return;
-    db = freshData();
-    save();
+    replaceAllData(freshData());
     render();
     toast('Tüm veriler silindi');
   },
@@ -1009,10 +1072,10 @@ const changes = {
   'period-from': (el) => { if (el.value) { ui.period.from = el.value; render(); } },
   'period-to': (el) => { if (el.value) { ui.period.to = el.value; render(); } },
   'tx-cat': (el) => { ui.txFilter.cat = el.value; render(); },
-  'set-monthStart': (el) => { db.settings.monthStartDay = Number(el.value); save(); render(); toast('Kaydedildi ✓'); },
-  'set-weekStart': (el) => { db.settings.weekStartDay = Number(el.value); save(); render(); toast('Kaydedildi ✓'); },
-  'set-currency': (el) => { db.settings.currency = el.value.trim() || '₺'; save(); render(); toast('Kaydedildi ✓'); },
-  'set-theme': (el) => { db.settings.theme = el.value; save(); render(); },
+  'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
+  'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
+  'set-currency': (el) => { setSetting('currency', el.value.trim() || '₺'); render(); toast('Kaydedildi ✓'); },
+  'set-theme': (el) => { setSetting('theme', el.value); render(); },
 };
 document.addEventListener('change', (e) => {
   if (e.target.id === 'import-file' && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ''; return; }
@@ -1047,9 +1110,258 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && form && !catForm && ['f-amount', 'f-note'].includes(e.target.id)) { e.preventDefault(); saveTx(false); }
 });
 
+
+/* ------------------------------ senkron ------------------------------ */
+// Firebase (Google) ile telefon ↔ bilgisayar eşitleme.
+// Kayıtlar users/{uid}/tx, users/{uid}/cat ve users/{uid}/meta/settings altında durur.
+// Aynı kayıt iki cihazda değiştiyse en son değiştirilen (updatedAt) kazanır.
+// Her yazıma sunucu zamanı (srv) eklenir; açılışta sadece son eşitlemeden sonra değişenler indirilir.
+
+const FB_VER = '10.12.2';
+var sync = { fb: null, auth: null, fs: null, user: null, ready: false, state: 'off', error: '', unsubs: [], pushing: false, timer: null };
+
+function syncConfigured() { return !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey); }
+
+function setSyncState(state, error = '') {
+  sync.state = state;
+  sync.error = error;
+  if (ui.view === 'home' || ui.view === 'settings') scheduleRender();
+}
+
+let renderTimer;
+function scheduleRender() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    // Ayarlarda bir alana yazılırken ekranı yenileme
+    if (ui.view === 'settings' && document.activeElement?.matches('input')) return;
+    render();
+  }, 150);
+}
+
+async function initSync() {
+  if (!syncConfigured() || sync.auth) return;
+  try {
+    const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
+    const [app, auth, fs] = await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map((f) => import(base + f)));
+    sync.fb = { auth, fs };
+    const fbApp = app.initializeApp(window.FIREBASE_CONFIG);
+    sync.auth = auth.getAuth(fbApp);
+    sync.fs = fs.getFirestore(fbApp);
+    auth.getRedirectResult(sync.auth).catch((e) => console.warn(e));
+    auth.onAuthStateChanged(sync.auth, (user) => {
+      sync.user = user;
+      sync.ready = true;
+      if (user) startListening();
+      else { stopListening(); setSyncState('off'); }
+    });
+  } catch (e) {
+    console.warn('Senkron yüklenemedi', e);
+    setSyncState('offline');
+  }
+}
+
+const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
+const userDoc = (kind, id) => kind === 'set'
+  ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
+  : sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, kind, id);
+
+function stopListening() {
+  sync.unsubs.forEach((u) => u());
+  sync.unsubs = [];
+}
+
+function startListening() {
+  stopListening();
+  const { fs } = sync.fb;
+  const uid = sync.user.uid;
+  const firstTime = !db.sync || db.sync.uid !== uid;
+  if (firstTime) db.sync = { uid, lastSrv: 0 };
+  const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
+  const remoteTimes = {};
+  let waiting = 3;
+  setSyncState('syncing');
+
+  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['meta', 'set']]) {
+    let first = true;
+    const q = fs.query(userCol(name), fs.where('srv', '>', since));
+    const unsub = fs.onSnapshot(q, (snap) => {
+      let changed = false;
+      for (const ch of snap.docChanges()) {
+        if (ch.type === 'removed') continue;
+        const data = ch.doc.data();
+        const id = kind === 'set' ? 'main' : ch.doc.id;
+        remoteTimes[`${kind}:${id}`] = data.updatedAt || 0;
+        if (data.srv && !ch.doc.metadata.hasPendingWrites) db.sync.lastSrv = Math.max(db.sync.lastSrv || 0, data.srv.toMillis());
+        if (applyRemote(kind, id, data)) changed = true;
+      }
+      if (first) {
+        first = false;
+        // Bu cihazda ilk kez giriş yapıldıysa: buluttakinden yeni olan yerel kayıtları gönder.
+        if (--waiting === 0 && firstTime) reconcileLocal(remoteTimes);
+      }
+      saveLocal();
+      if (changed) scheduleRender();
+      if (waiting === 0) pushPending();
+    }, (err) => {
+      console.warn(err);
+      setSyncState('error', err.code === 'permission-denied' ? 'Bulut erişim izni yok (Firestore kuralları)' : err.code || err.message);
+    });
+    sync.unsubs.push(unsub);
+  }
+}
+
+function applyRemote(kind, id, data) {
+  const item = { ...data };
+  delete item.srv;
+  delete item.deleted;
+  if (kind === 'set') {
+    if ((data.updatedAt || 0) <= (db.settings.updatedAt || 0)) return false;
+    db.settings = { ...db.settings, ...item };
+    return true;
+  }
+  const arr = kind === 'tx' ? db.transactions : db.categories;
+  const i = arr.findIndex((x) => x.id === id);
+  const tomb = db.deleted.find((d) => d.id === id);
+  const localTime = i >= 0 ? arr[i].updatedAt || 0 : tomb ? tomb.at : -1;
+  if ((data.updatedAt || 0) <= localTime) return false;
+  if (data.deleted) {
+    if (i >= 0) arr.splice(i, 1);
+    if (tomb) tomb.at = data.updatedAt;
+    else db.deleted.push({ id, kind, at: data.updatedAt });
+  } else {
+    item.id = id;
+    if (i >= 0) arr[i] = item;
+    else arr.push(item);
+    if (tomb) db.deleted = db.deleted.filter((d) => d.id !== id);
+  }
+  return true;
+}
+
+function reconcileLocal(remoteTimes) {
+  const rt = (k) => remoteTimes[k] ?? -1;
+  for (const t of db.transactions) if ((t.updatedAt || 0) > rt(`tx:${t.id}`)) touch('tx', t.id);
+  for (const c of db.categories) if ((c.updatedAt || 0) > rt(`cat:${c.id}`)) touch('cat', c.id);
+  for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
+  if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
+}
+
+function payloadFor(kind, id) {
+  if (kind === 'set') return { ...db.settings, updatedAt: db.settings.updatedAt || 0 };
+  const arr = kind === 'tx' ? db.transactions : db.categories;
+  const it = arr.find((x) => x.id === id);
+  if (it) return JSON.parse(JSON.stringify(it));
+  const tomb = db.deleted.find((d) => d.id === id);
+  return tomb ? { deleted: true, updatedAt: tomb.at } : null;
+}
+
+function schedulePush() {
+  if (!sync.user) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(pushPending, 600);
+}
+
+async function pushPending() {
+  if (!sync.user || sync.pushing) return;
+  const entries = Object.entries(db.pending);
+  if (!entries.length) {
+    if (sync.state !== 'error') setSyncState(navigator.onLine ? 'ok' : 'offline');
+    return;
+  }
+  const { fs } = sync.fb;
+  sync.pushing = true;
+  setSyncState(navigator.onLine ? 'syncing' : 'offline');
+  try {
+    for (let i = 0; i < entries.length; i += 400) {
+      const chunk = entries.slice(i, i + 400);
+      const batch = fs.writeBatch(sync.fs);
+      for (const [key] of chunk) {
+        const cut = key.indexOf(':');
+        const kind = key.slice(0, cut), id = key.slice(cut + 1);
+        const data = payloadFor(kind, id);
+        if (data) batch.set(userDoc(kind, id), { ...data, srv: fs.serverTimestamp() });
+      }
+      await batch.commit(); // internet yoksa bağlantı gelene kadar bekler
+      for (const [key, stamp] of chunk) if (db.pending[key] === stamp) delete db.pending[key];
+      saveLocal();
+    }
+    setSyncState('ok');
+  } catch (e) {
+    console.warn(e);
+    setSyncState('error', e.code === 'permission-denied' ? 'Bulut erişim izni yok (Firestore kuralları)' : e.code || e.message);
+  } finally {
+    sync.pushing = false;
+    if (Object.keys(db.pending).length && sync.state === 'ok') schedulePush();
+  }
+}
+
+async function signIn() {
+  if (!sync.auth) { toast('Senkron yüklenemedi. İnternet bağlantını kontrol et.'); initSync(); return; }
+  const { auth } = sync.fb;
+  const provider = new auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    await auth.signInWithPopup(sync.auth, provider);
+    toast('Giriş yapıldı, eşitleniyor…');
+  } catch (e) {
+    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment', 'auth/web-storage-unsupported'].includes(e.code)) {
+      return auth.signInWithRedirect(sync.auth, provider);
+    }
+    if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') toast(`Giriş yapılamadı: ${e.code || e.message}`);
+  }
+}
+
+async function signOutSync() {
+  if (!confirm('Çıkış yapılsın mı? Bu cihazdaki veriler kalır, ama tekrar giriş yapana kadar eşitlenmez.')) return;
+  await sync.fb.auth.signOut(sync.auth);
+  toast('Çıkış yapıldı');
+}
+
+const SYNC_TEXT = {
+  ok: ['✓', 'Eşitlendi', 'Eşitlendi'],
+  syncing: ['⟳', 'Eşitleniyor…', 'Eşitleniyor'],
+  offline: ['☁︎', 'İnternet yok, bağlanınca eşitlenecek', 'Çevrimdışı'],
+  error: ['⚠', 'Eşitleme hatası', 'Hata'],
+  off: ['☁︎', 'Senkron kapalı', 'Giriş yap'],
+};
+
+function syncBadge() {
+  if (!syncConfigured()) return '';
+  const st = sync.user ? sync.state : 'off';
+  const [icon, long, short] = SYNC_TEXT[st];
+  return `<button class="sync-badge ${st}" data-action="nav" data-view="settings" title="${long}">${icon} ${short}</button>`;
+}
+
+function syncCard() {
+  const title = '<h3>☁️ Telefon ↔ bilgisayar senkronu</h3>';
+  if (!syncConfigured()) {
+    return `<div class="card">${title}<p class="muted" style="margin:0;font-size:13px">Henüz kurulmadı.</p></div>`;
+  }
+  if (!sync.user) {
+    const label = sync.ready ? 'Google ile giriş yap' : sync.state === 'offline' ? 'Tekrar dene' : 'Yükleniyor…';
+    return `<div class="card">${title}
+      <p class="muted" style="margin-top:-4px;font-size:13px">Telefonda ve bilgisayarda aynı Google hesabıyla giriş yap, kayıtların iki tarafta da görünsün. İnternet yokken girdiklerin, bağlanınca gönderilir.</p>
+      <button class="btn primary block" data-action="sync-login" ${sync.ready || sync.state === 'offline' ? '' : 'disabled'}>${label}</button>
+    </div>`;
+  }
+  const pend = Object.keys(db.pending).length;
+  const [icon, text] = SYNC_TEXT[sync.state] || SYNC_TEXT.ok;
+  return `<div class="card">${title}
+    <div class="setting"><div><b>${esc(sync.user.email || sync.user.displayName || 'Hesap')}</b>
+      <p class="sync-text ${sync.state}">${icon} ${text}${sync.error ? `: ${esc(sync.error)}` : ''}${pend && sync.state !== 'ok' ? ` · ${pend} bekleyen değişiklik` : ''}</p></div></div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn" data-action="sync-now">⟳ Şimdi eşitle</button>
+      <button class="btn" data-action="sync-logout">Çıkış yap</button>
+    </div>
+  </div>`;
+}
+
+window.addEventListener('online', () => { if (!sync.auth) initSync(); else if (sync.user) { setSyncState('syncing'); schedulePush(); } });
+window.addEventListener('offline', () => { if (sync.user) setSyncState('offline'); });
+
 /* ------------------------------ başlat ------------------------------ */
 
 render();
+initSync();
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW kaydı başarısız', e));
