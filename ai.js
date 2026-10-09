@@ -156,7 +156,11 @@ async function aiGenerate(prompt, json) {
   const mod = await import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-ai.js`);
   const ai = mod.getAI(sync.app, { backend: new mod.GoogleAIBackend() });
   let lastErr;
-  for (const name of AI_MODELS) {
+  // En son çalışan model önce denenir; bir model hata verirse sıradakine geçilir
+  let good = '';
+  try { good = localStorage.getItem('butce.aiModel') || ''; } catch {}
+  const order = good && AI_MODELS.includes(good) ? [good, ...AI_MODELS.filter((m) => m !== good)] : AI_MODELS;
+  for (const name of order) {
     try {
       const model = mod.getGenerativeModel(ai, {
         model: name,
@@ -165,12 +169,13 @@ async function aiGenerate(prompt, json) {
       });
       const res = await model.generateContent(prompt);
       aiState.unavailable = false;
+      try { localStorage.setItem('butce.aiModel', name); } catch {}
       return res.response.text();
     } catch (e) {
       lastErr = e;
       console.warn('Analiz', name, e);
-      // Model bulunamadıysa sıradakini dene; başka hatalarda dur.
-      if (!/not.?found|404|not supported|unsupported|deprecated|no longer available/i.test(String(e?.message))) break;
+      // İnternet yoksa diğer modelleri denemenin anlamı yok
+      if (/network|failed to fetch/i.test(String(e?.message))) break;
     }
   }
   throw lastErr;
