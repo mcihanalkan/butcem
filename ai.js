@@ -175,7 +175,7 @@ async function aiGenerate(prompt, json) {
       lastErr = e;
       console.warn('Analiz', name, e);
       // İnternet yoksa diğer modelleri denemenin anlamı yok
-      if (/network|failed to fetch/i.test(String(e?.message))) break;
+      if (/network|failed to fetch|app ?check/i.test(String(e?.message))) break;
     }
   }
   throw lastErr;
@@ -184,8 +184,13 @@ async function aiGenerate(prompt, json) {
 function aiErrorText(e) {
   const m = String(e?.message || e);
   if (m === 'offline' || /network|failed to fetch/i.test(m)) return 'İnternet bağlantısı yok gibi görünüyor.';
-  if (/api.?not.?enabled|firebasevertexai|firebaseml|ai logic|has not been used|PERMISSION_DENIED|403/i.test(m)) {
-    aiState.unavailable = true;
+  // App Check zorunluyken uygulama doğrulama anahtarı göndermediği için istek reddedilir
+  if (/app ?check/i.test(m)) {
+    aiState.unavailable = 'appcheck';
+    return 'Analiz servisinde App Check güvenlik kilidi zorunlu.';
+  }
+  if (/requires the Firebase AI API|api.?not.?enabled|has not been used|SERVICE_DISABLED/i.test(m)) {
+    aiState.unavailable = 'disabled';
     return 'Detaylı analiz servisi henüz açılmamış.';
   }
   if (/quota|429|RESOURCE_EXHAUSTED|rate/i.test(m)) return 'Günlük analiz sınırına ulaşıldı. Biraz sonra tekrar dene.';
@@ -349,6 +354,7 @@ function renderAiSheet() {
     <div class="ai-deep">
       <div class="between"><h4 style="margin:0">Detaylı analiz</h4>${r?.at ? `<small class="muted">${new Date(r.at).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small>` : ''}</div>
       ${!canAi ? `<p class="muted small">Detaylı analiz ve soru-cevap için Ayarlar'dan Google ile giriş yap.</p>`
+      : aiState.unavailable === 'appcheck' ? `<div class="setup-note"><b>Güvenlik kilidi (App Check) analizi engelliyor</b><small>Firebase konsolu → <b>App Check → APIs</b> bölümünde <b>Firebase AI Logic</b> satırını <b>Unenforce</b> yap; birkaç dakika sonra burası çalışır. Yukarıdaki değerlendirme bundan bağımsız olarak her zaman güncel.</small><button class="btn small" data-action="ai-analyze">Tekrar dene</button></div>`
       : aiState.unavailable ? `<div class="setup-note"><b>Detaylı analiz servisi kapalı</b><small>Firebase konsolunda <b>AI Logic → Get started → Gemini Developer API</b> adımını tamamlayınca burası çalışır. Yukarıdaki değerlendirme bundan bağımsız olarak her zaman güncel.</small><button class="btn small" data-action="ai-analyze">Tekrar dene</button></div>`
       : `
         ${aiState.loading && !r ? '<div class="empty">Harcamaların inceleniyor…</div>' : ''}

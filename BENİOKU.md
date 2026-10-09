@@ -16,6 +16,16 @@ Sonra telefonda Chrome → ⋮ → **Ana ekrana ekle / Uygulamayı yükle** ders
 - `manifest.webmanifest`, `sw.js`, `icons/` — telefona uygulama olarak kurulabilmesi ve internetsiz çalışması için
 - `serve.js`, `baslat.bat` — yerel sunucu
 - `tools/make-icons.ps1` — ikonları yeniden üretir
+- `tools/bump-version.py` — yayın öncesi sürümü artırır ve `index.html`, `sw.js`, `app.js` sürümlerini birlikte doğrular
+
+## Yayın öncesi sürüm artırma
+Kod değiştirip yayınlamadan önce şu komutu çalıştır:
+
+`python tools/bump-version.py`
+
+Sadece sürüm tutarlılığını kontrol etmek için:
+
+`python tools/bump-version.py --check`
 
 ## Veriler nerede?
 Şimdilik her cihazın kendi tarayıcısında saklanıyor (telefondaki ve PC'dekiler ayrı).

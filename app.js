@@ -655,7 +655,9 @@ function viewSettings() {
       <div class="btn-stack">
         <button class="btn" data-action="export-json">Yedek al (.json)</button>
         <button class="btn" data-action="import-json">Yedekten geri yükle</button>
-        <button class="btn" data-action="export-csv">Excel için dışa aktar (.csv)</button>
+        <button class="btn" data-action="export-csv">İşlemleri Excel'e aktar (.csv)</button>
+        <button class="btn" data-action="export-reports-csv">Kapsamlı raporları indir (.csv)</button>
+        <button class="btn" data-action="export-report-json">Kapsamlı rapor al (.json)</button>
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
@@ -666,7 +668,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 17;
+const APP_VERSION = 19;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -983,8 +985,9 @@ function deleteCat() {
     if (!confirm(`${used.length} işlem "${tName}" kategorisine taşınacak ve "${f.name}" silinecek. Emin misin?`)) return;
     used.forEach((t) => { t.categoryId = target; t.updatedAt = now; touch('tx', t.id); });
   } else if (!confirm(`"${f.name}" kategorisi silinsin mi?`)) return;
+  const deletedCat = db.categories.find((c) => c.id === f.id);
   db.categories = db.categories.filter((c) => c.id !== f.id);
-  db.deleted.push({ id: f.id, kind: 'cat', at: now, data: db.categories.find((c) => c.id === f.id) });
+  db.deleted.push({ id: f.id, kind: 'cat', at: now, data: deletedCat });
   touch('cat', f.id);
   if (ui.txFilter.cat === f.id) ui.txFilter.cat = '';
   save();
@@ -1024,18 +1027,74 @@ function exportJson() {
 function exportCsv() {
   const cm = catMap();
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Tarih', 'Tür', 'Kategori', 'Tutar', 'Not'].map(cell).join(';')];
+  const txType = (t) => t.type === 'income' ? 'Gelir' : t.type === 'expense' ? 'Gider' : t.type === 'transfer' ? 'Transfer' : t.type === 'debt' ? 'Borç/Alacak' : t.type;
+  const txAmount = (t) => {
+    const sign = t.type === 'income' || (t.type === 'debt' && t.flow === 'in') ? 1 : t.type === 'transfer' ? 0 : -1;
+    return ((t.amount * sign) / 100).toFixed(2).replace('.', ',');
+  };
+  const lines = [['Tarih', 'Tür', 'Kategori', 'Hesap', 'Tutar', 'Durum', 'Not'].map(cell).join(';')];
   for (const t of sortTx(db.transactions).reverse()) {
     const d = fromISO(t.date);
+    const acc = t.type === 'transfer'
+      ? `${accById(t.fromId)?.name || 'Hesap dışı'} → ${accById(t.toId)?.name || ''}`
+      : accById(t.accountId)?.name || '';
     lines.push([
       `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`,
-      t.type === 'income' ? 'Gelir' : t.type === 'transfer' ? 'Transfer' : 'Gider',
-      (cm[t.categoryId] || MISSING_CAT).name,
-      (t.type === 'income' ? '' : '-') + (t.amount / 100).toFixed(2).replace('.', ','),
+      txType(t),
+      t.type === 'debt' ? debtTxTitle(t) : t.type === 'transfer' ? 'Transfer' : (cm[t.categoryId] || MISSING_CAT).name,
+      acc,
+      txAmount(t),
+      isPlanned(t) ? (t.awaiting ? 'Onay bekliyor' : 'Planlı') : 'Gerçekleşti',
       t.note,
     ].map(cell).join(';'));
   }
   download(`butcem-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+function csvFile(name, headers, rows) {
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [headers, ...rows].map((r) => r.map(cell).join(';'));
+  return { name: `butcem-${name}-${todayISO()}.csv`, content: '﻿' + lines.join('\r\n') };
+}
+
+function exportReportsCsv() {
+  const per = budgetPeriod(todayISO());
+  const files = [
+    csvFile('hesaplar', ['Ad', 'Tür', 'Banka', 'Son 4', 'Limit', 'Bakiye / Borç', 'Dönem Borcu', 'Asgari', 'Son Ödeme'], db.accounts.map((a) => {
+      const credit = a.kind === 'credit';
+      const s = credit ? cardStatus(a) : null;
+      return [a.name, ACC_KINDS[a.kind]?.label || a.kind, a.bank || '', a.last4 || '', credit ? num(a.limit || 0) : '', num(accBalance(a)), s ? num(s.remaining) : '', s ? num(s.minDue) : '', s ? s.due : ''];
+    })),
+    csvFile('borclar', ['Kişi', 'Yön', 'Toplam', 'Ödenen / Tahsil Edilen', 'Kalan', 'Tarih', 'Vade', 'Durum', 'Not'], db.debts.map((d) => {
+      const s = debtStatus(d);
+      return [d.person, isBorrowed(d) ? 'Borcum' : 'Alacağım', num(d.amount), num(s.paid), num(s.remaining), d.date, d.dueDate || '', s.closed ? 'Kapandı' : dueLabel(s), d.note || ''];
+    })),
+    csvFile('duzenli', ['Ad', 'Tür', 'Kategori', 'Tutar', 'Sıklık', 'Başlangıç', 'Bitiş', 'Durum', 'Hesap'], db.recurring.map((r) => {
+      const c = catMap()[r.categoryId] || MISSING_CAT;
+      return [recName(r), r.type === 'income' ? 'Gelir' : 'Gider', c.name, num(r.amount), freqText(r), r.startDate || '', r.endDate || '', r.paused ? 'Duraklatıldı' : 'Aktif', accById(r.accountId)?.name || ''];
+    })),
+    csvFile('butceler', ['Ad', 'Kapsam', 'Limit', 'Harcanan', 'Kalan', 'Ay Sonu Tahmini', 'Uyarı Eşiği', 'Devreden', 'Durum'], db.budgets.map((b) => {
+      const s = budgetStatus(b, per);
+      return [budgetName(b), b.scope === 'total' ? 'Toplam' : 'Kategori', num(s.limit), num(s.spent), num(s.remaining), s.projected == null ? '' : num(s.projected), `%${b.alertAt || 80}`, b.rollover ? 'Evet' : 'Hayır', LEVEL_META[s.level]?.label || s.level];
+    })),
+  ];
+  files.forEach((f, i) => setTimeout(() => download(f.name, f.content, 'text/csv;charset=utf-8'), i * 250));
+  toast(`${files.length} CSV raporu indiriliyor`);
+}
+
+function exportReportJson() {
+  const per = budgetPeriod(todayISO());
+  const report = {
+    app: 'butcem-report',
+    exportedAt: new Date().toISOString(),
+    period: per,
+    summary: totals(txIn(per)),
+    accounts: db.accounts.map((a) => ({ ...a, balance: accBalance(a), cardStatus: a.kind === 'credit' ? cardStatus(a) : null })),
+    debts: db.debts.map((d) => ({ ...d, status: debtStatus(d) })),
+    recurring: db.recurring.map((r) => ({ ...r, name: recName(r), frequencyText: freqText(r), nextDate: r.paused ? null : nextOccurrence(r) })),
+    budgets: db.budgets.map((b) => ({ ...b, name: budgetName(b), status: budgetStatus(b, per) })),
+  };
+  download(`butcem-rapor-${todayISO()}.json`, JSON.stringify(report, null, 2), 'application/json');
 }
 
 function importJson(file) {
@@ -1142,6 +1201,8 @@ const actions = {
   },
   'export-json': () => exportJson(),
   'export-csv': () => exportCsv(),
+  'export-reports-csv': () => exportReportsCsv(),
+  'export-report-json': () => exportReportJson(),
   'import-json': () => $('#import-file').click(),
 };
 
@@ -1234,6 +1295,13 @@ async function initSync() {
     sync.fb = { auth, fs };
     const fbApp = app.initializeApp(window.FIREBASE_CONFIG);
     sync.app = fbApp;
+    // İsteğe bağlı güvenlik: firebase-config.js içinde APP_CHECK_SITE_KEY (reCAPTCHA v3) tanımlıysa App Check açılır
+    if (window.APP_CHECK_SITE_KEY) {
+      try {
+        const ac = await import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-app-check.js`);
+        ac.initializeAppCheck(fbApp, { provider: new ac.ReCaptchaV3Provider(window.APP_CHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+      } catch (e) { console.warn('App Check başlatılamadı', e); }
+    }
     sync.auth = auth.getAuth(fbApp);
     sync.fs = fs.getFirestore(fbApp);
     auth.getRedirectResult(sync.auth).catch((e) => console.warn(e));
@@ -1289,6 +1357,7 @@ function startListening() {
         // Bu cihazda ilk kez giriş yapıldıysa: buluttakinden yeni olan yerel kayıtları gönder.
         if (--waiting === 0 && firstTime) reconcileLocal(remoteTimes);
       }
+      if (waiting === 0) db.sync.lastPull = Date.now();
       saveLocal();
       if (changed) scheduleRender();
       if (waiting === 0) pushPending();
@@ -1359,6 +1428,7 @@ async function pushPending() {
   if (!sync.user || sync.pushing) return;
   const entries = Object.entries(db.pending);
   if (!entries.length) {
+    if (db.sync) { db.sync.lastOk = Date.now(); saveLocal(); }
     if (sync.state !== 'error') setSyncState(navigator.onLine ? 'ok' : 'offline');
     return;
   }
@@ -1379,6 +1449,7 @@ async function pushPending() {
       for (const [key, stamp] of chunk) if (db.pending[key] === stamp) delete db.pending[key];
       saveLocal();
     }
+    if (db.sync) { db.sync.lastOk = Date.now(); saveLocal(); }
     setSyncState('ok');
   } catch (e) {
     console.warn(e);
@@ -1419,6 +1490,15 @@ const SYNC_TEXT = {
   off: ['', 'Senkron kapalı', 'Giriş yap'],
 };
 
+function syncTime(ts) {
+  if (!ts) return 'Yok';
+  try {
+    return new Date(ts).toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return 'Yok';
+  }
+}
+
 function syncBadge() {
   if (!syncConfigured()) return '';
   const st = sync.user ? sync.state : 'off';
@@ -1440,9 +1520,21 @@ function syncCard() {
   }
   const pend = Object.keys(db.pending).length;
   const [icon, text] = SYNC_TEXT[sync.state] || SYNC_TEXT.ok;
+  const lastOk = db.sync?.lastOk || 0;
+  const lastSrv = db.sync?.lastSrv || 0;
+  const lastPull = db.sync?.lastPull || 0;
+  const detailRows = [
+    ['Bekleyen değişiklik', pend ? `${pend} kayıt` : 'Yok'],
+    ['Son başarılı eşitleme', syncTime(lastOk)],
+    ['Son bulut kontrolü', syncTime(lastPull || lastSrv)],
+    ['Son sunucu kaydı', syncTime(lastSrv)],
+  ];
   return `<div class="card">${title}
     <div class="setting"><div><b>${esc(sync.user.email || sync.user.displayName || 'Hesap')}</b>
       <p class="sync-text ${sync.state}">${icon} ${text}${sync.error ? `: ${esc(sync.error)}` : ''}${pend && sync.state !== 'ok' ? ` · ${pend} bekleyen değişiklik` : ''}</p></div></div>
+    <div class="sync-detail">
+      ${detailRows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}
+    </div>
     <div class="row" style="margin-top:6px">
       <button class="btn" data-action="sync-now">⟳ Şimdi eşitle</button>
       <button class="btn" data-action="sync-logout">Çıkış yap</button>

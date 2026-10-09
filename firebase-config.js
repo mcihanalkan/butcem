@@ -8,3 +8,6 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: '4420229552',
   appId: '1:4420229552:web:4e317fd9af3627d4fb9e75',
 };
+
+// İsteğe bağlı: Firebase App Check için reCAPTCHA v3 site anahtarı. Tanımlanırsa analiz istekleri doğrulanır.
+// window.APP_CHECK_SITE_KEY = '...';
