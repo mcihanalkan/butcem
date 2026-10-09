@@ -165,7 +165,11 @@ async function aiGenerate(prompt, json) {
     try {
       // Düşük düşünme seviyesi: aynı kalitede ~3 kat daha hızlı cevap. Desteklemeyen modelde ayarsız tekrar denenir.
       const base = json ? { responseMimeType: 'application/json', temperature: 0.3 } : { temperature: 0.5 };
-      const run = (cfg) => mod.getGenerativeModel(ai, { model: name, systemInstruction: AI_SYSTEM, generationConfig: cfg }).generateContent(prompt);
+      // Askıda kalan istek kullanıcıyı kilitlemesin: 45 sn içinde cevap gelmezse sıradaki modele geç
+      const run = (cfg) => Promise.race([
+        mod.getGenerativeModel(ai, { model: name, systemInstruction: AI_SYSTEM, generationConfig: cfg }).generateContent(prompt),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 45000)),
+      ]);
       let res;
       try { res = await run({ ...base, thinkingConfig: { thinkingLevel: 'LOW' } }); }
       catch (e) { if (/thinking/i.test(String(e?.message))) res = await run(base); else throw e; }
@@ -185,6 +189,7 @@ async function aiGenerate(prompt, json) {
 function aiErrorText(e) {
   const m = String(e?.message || e);
   if (m === 'offline' || /network|failed to fetch/i.test(m)) return 'İnternet bağlantısı yok gibi görünüyor.';
+  if (m === 'timeout') return 'Cevap çok uzun sürdü. Biraz sonra tekrar dene.';
   // App Check zorunluyken uygulama doğrulama anahtarı göndermediği için istek reddedilir
   if (/app ?check/i.test(m)) {
     aiState.unavailable = 'appcheck';
