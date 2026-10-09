@@ -72,7 +72,8 @@ function freshData() {
     settings: { currency: '₺', monthStartDay: 1, weekStartDay: 1, theme: 'auto' },
     categories: cats,
     transactions: [],
-    deleted: [], // silinen kayıtların izi: [{ id, kind: 'tx' | 'cat', at }]
+    budgets: [], // aylık limitler: [{ id, scope: 'total' | 'cat', categoryId, amount, alertAt, rollover }]
+    deleted: [], // silinen kayıtların izi: [{ id, kind: 'tx' | 'cat' | 'bud', at, data }]
     pending: {}, // buluta gönderilmeyi bekleyen değişiklikler: { 'tx:<id>': zaman }
     sync: null, // { uid, lastSrv }
   };
@@ -87,6 +88,7 @@ function normalize(d) {
     categories: Array.isArray(d.categories) ? d.categories : base.categories,
     transactions: Array.isArray(d.transactions) ? d.transactions : [],
     deleted: (Array.isArray(d.deleted) ? d.deleted : []).map((x) => ({ kind: 'tx', ...x })),
+    budgets: Array.isArray(d.budgets) ? d.budgets : [],
     pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
     sync: d.sync || null,
   };
@@ -458,6 +460,7 @@ function viewHome() {
       <div class="stat"><small>Gider</small><b class="exp">${money(t.exp)}</b>${prev ? deltaText(t.exp, prev.exp, false) : ''}</div>
       <div class="stat"><small>Kalan</small><b class="${t.net >= 0 ? 'inc' : 'exp'}">${money(t.net)}</b></div>
     </div>
+    ${homeBudgetCard()}
     <div class="card">
       <div class="between" style="margin-bottom:12px">
         <h3 style="margin:0">${ui.homeDonut === 'income' ? 'Gelir' : 'Gider'} dağılımı</h3>
@@ -767,6 +770,7 @@ function saveTx(again) {
   if (!form.date) { toast('Tarih seç'); return; }
   const now = Date.now();
   const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), updatedAt: now };
+  const budgetBefore = budgetSnapshot(form.date);
   if (form.id) {
     const tx = db.transactions.find((x) => x.id === form.id);
     if (tx) Object.assign(tx, data);
@@ -778,15 +782,16 @@ function saveTx(again) {
   }
   save();
   render();
+  const wasEdit = !!form.id;
+  const warnings = data.type === 'expense' ? budgetWarningsAfterSave(budgetBefore, data) : [];
   if (again) {
     form = { id: null, type: form.type, amountText: '', categoryId: null, date: form.date, note: '' };
     renderTxForm(true);
-    toast('Kaydedildi ✓');
   } else {
-    const wasEdit = !!form.id;
     closeSheet();
-    toast(wasEdit ? 'Güncellendi ✓' : 'Kaydedildi ✓');
   }
+  if (warnings.length) alertToast(warnings);
+  else toast(wasEdit ? 'Güncellendi ✓' : 'Kaydedildi ✓');
 }
 
 function deleteTx(id) {
@@ -1101,12 +1106,12 @@ document.addEventListener('keydown', (e) => {
 
 /* ------------------------------ senkron ------------------------------ */
 // Firebase (Google) ile telefon ↔ bilgisayar eşitleme.
-// Kayıtlar users/{uid}/tx, users/{uid}/cat ve users/{uid}/meta/settings altında durur.
+// Kayıtlar users/{uid}/tx, /cat, /bud ve users/{uid}/meta/settings altında durur.
 // Aynı kayıt iki cihazda değiştiyse en son değiştirilen (updatedAt) kazanır.
 // Her yazıma sunucu zamanı (srv) eklenir; açılışta sadece son eşitlemeden sonra değişenler indirilir.
 
-const FB_VER = '10.12.2';
-var sync = { fb: null, auth: null, fs: null, user: null, ready: false, state: 'off', error: '', unsubs: [], pushing: false, timer: null };
+const FB_VER = '13.0.0';
+var sync = { app: null, fb: null, auth: null, fs: null, user: null, ready: false, state: 'off', error: '', unsubs: [], pushing: false, timer: null };
 
 function syncConfigured() { return !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey); }
 
@@ -1133,6 +1138,7 @@ async function initSync() {
     const [app, auth, fs] = await Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map((f) => import(base + f)));
     sync.fb = { auth, fs };
     const fbApp = app.initializeApp(window.FIREBASE_CONFIG);
+    sync.app = fbApp;
     sync.auth = auth.getAuth(fbApp);
     sync.fs = fs.getFirestore(fbApp);
     auth.getRedirectResult(sync.auth).catch((e) => console.warn(e));
@@ -1148,6 +1154,7 @@ async function initSync() {
   }
 }
 
+const arrFor = (kind) => (kind === 'tx' ? db.transactions : kind === 'cat' ? db.categories : db.budgets);
 const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
 const userDoc = (kind, id) => kind === 'set'
   ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
@@ -1166,10 +1173,10 @@ function startListening() {
   if (firstTime) db.sync = { uid, lastSrv: 0 };
   const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
   const remoteTimes = {};
-  let waiting = 3;
+  let waiting = 4;
   setSyncState('syncing');
 
-  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['meta', 'set']]) {
+  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['meta', 'set']]) {
     let first = true;
     const q = fs.query(userCol(name), fs.where('srv', '>', since));
     const unsub = fs.onSnapshot(q, (snap) => {
@@ -1207,7 +1214,7 @@ function applyRemote(kind, id, data) {
     db.settings = { ...db.settings, ...item };
     return true;
   }
-  const arr = kind === 'tx' ? db.transactions : db.categories;
+  const arr = arrFor(kind);
   const i = arr.findIndex((x) => x.id === id);
   const tomb = db.deleted.find((d) => d.id === id);
   const localTime = i >= 0 ? arr[i].updatedAt || 0 : tomb ? tomb.at : -1;
@@ -1229,13 +1236,14 @@ function reconcileLocal(remoteTimes) {
   const rt = (k) => remoteTimes[k] ?? -1;
   for (const t of db.transactions) if ((t.updatedAt || 0) > rt(`tx:${t.id}`)) touch('tx', t.id);
   for (const c of db.categories) if ((c.updatedAt || 0) > rt(`cat:${c.id}`)) touch('cat', c.id);
+  for (const b of db.budgets) if ((b.updatedAt || 0) > rt(`bud:${b.id}`)) touch('bud', b.id);
   for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
   if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
 }
 
 function payloadFor(kind, id) {
   if (kind === 'set') return { ...db.settings, updatedAt: db.settings.updatedAt || 0 };
-  const arr = kind === 'tx' ? db.transactions : db.categories;
+  const arr = arrFor(kind);
   const it = arr.find((x) => x.id === id);
   if (it) return JSON.parse(JSON.stringify(it));
   const tomb = db.deleted.find((d) => d.id === id);
@@ -1346,12 +1354,3 @@ function syncCard() {
 
 window.addEventListener('online', () => { if (!sync.auth) initSync(); else if (sync.user) { setSyncState('syncing'); schedulePush(); } });
 window.addEventListener('offline', () => { if (sync.user) setSyncState('offline'); });
-
-/* ------------------------------ başlat ------------------------------ */
-
-render();
-initSync();
-
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-  navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW kaydı başarısız', e));
-}
