@@ -20,6 +20,9 @@ VERSIONED_FILES = [
     'subs.js',
     'reports.js',
     'push.js',
+    'forecast.js',
+    'lock.js',
+    'drive.js',
     'home.js',
     'start.js',
 ]

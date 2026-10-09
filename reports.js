@@ -32,7 +32,7 @@ function sparkBars(values, color) {
 }
 
 function lineChart(labels, series) {
-  const W = 600, H = 230, padL = 58, padR = 8, padT = 12, padB = 30;
+  const W = 600, H = 230, padL = 74, padR = 8, padT = 12, padB = 30;
   const all = series.flatMap((s) => s.values);
   const minV = Math.min(0, ...all), maxV = niceMax(Math.max(...all, 1));
   const pw = W - padL - padR, ph = H - padT - padB;
@@ -45,7 +45,7 @@ function lineChart(labels, series) {
   }
   if (minV < 0) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-dasharray="4 4"/>`;
   const step = Math.ceil(labels.length / 7);
-  labels.forEach((l, i) => { if (i % step === 0 || i === labels.length - 1) s += `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(l)}</text>`; });
+  labels.forEach((l, i) => { const last = i === labels.length - 1; if (last || (i % step === 0 && labels.length - 1 - i >= step * 0.7)) s += `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(l)}</text>`; });
   for (const se of series) {
     const pts = se.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
     s += `<polyline points="${pts}" fill="none" stroke="${se.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" ${se.dash ? 'stroke-dasharray="6 6"' : ''}/>`;

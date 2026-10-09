@@ -7,7 +7,7 @@ from pathlib import Path
 SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('C:/Users/HP/AppData/Local/Temp/lucide_icons')
 OUT = Path(__file__).resolve().parent.parent / 'icons.js'
 
-UI = ['house', 'list', 'target', 'credit-card', 'chart-column', 'settings', 'plus', 'chevron-left', 'chevron-right',
+UI = ['house', 'lock', 'delete', 'cloud-upload', 'list', 'target', 'credit-card', 'chart-column', 'settings', 'plus', 'chevron-left', 'chevron-right',
       'chevron-down', 'x', 'arrow-up-down', 'arrow-down-left', 'arrow-up-right', 'check', 'triangle-alert', 'circle-alert',
       'info', 'clock', 'calendar', 'repeat', 'trash-2', 'pencil', 'search', 'refresh-cw', 'cloud', 'cloud-off', 'log-out',
       'download', 'upload', 'file-spreadsheet', 'tags', 'wallet', 'landmark', 'banknote', 'circle-check', 'skip-forward',

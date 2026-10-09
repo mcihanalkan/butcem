@@ -171,7 +171,7 @@ const ui = {
   period: { mode: 'month', anchor: todayISO(), from: todayISO(), to: todayISO() },
   homeDonut: 'expense',
   reportCat: 'expense',
-  txFilter: { q: '', type: 'all', cat: '', acc: '' },
+  txFilter: null,
   catTab: 'expense',
 };
 try {
@@ -491,63 +491,115 @@ function emptyState(text) {
 
 /* ------------------------------- ekranlar ------------------------------- */
 
+const TX_FILTER0 = { q: '', type: 'all', cat: '', acc: '', scope: 'period', min: '', max: '', status: 'all', sort: 'date', more: false };
+ui.txFilter = { ...TX_FILTER0 };
+const TX_KINDS = [['all', 'Tümü'], ['expense', 'Gider'], ['income', 'Gelir'], ['transfer', 'Transfer'], ['debt', 'Borç / alacak'], ['goal', 'Birikim']];
+
+// Aramada eşleşecek metin: kategori, not, hesap adları, kişi, hedef, tutar ve tarih
+function txHaystack(t, cm) {
+  const d = fromISO(t.date);
+  const parts = [t.note, amountToInput(t.amount), nf.format(t.amount / 100), `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`, `${d.getDate()} ${MONTHS[d.getMonth()]}`];
+  if (t.type === 'transfer') parts.push('transfer', accById(t.fromId)?.name, accById(t.toId)?.name);
+  else if (t.type === 'debt') parts.push(debtTxTitle(t), accById(t.accountId)?.name);
+  else if (t.type === 'goal') parts.push(goalTxTitle(t), accById(t.accountId)?.name);
+  else parts.push((cm[t.categoryId] || MISSING_CAT).name, accById(t.accountId)?.name);
+  return parts.filter(Boolean).join(' ').toLocaleLowerCase('tr');
+}
+
+function txFilterCount(f) {
+  return [f.q.trim(), f.type !== 'all', f.cat, f.acc, f.scope === 'all', f.min, f.max, f.status !== 'all', f.sort !== 'date'].filter(Boolean).length;
+}
+
 function viewTx() {
   const per = getPeriod();
   const f = ui.txFilter;
   const cm = catMap();
-  const q = f.q.trim().toLocaleLowerCase('tr');
-  const list = sortTx(txIn(per).filter((t) => {
+  const words = f.q.trim().toLocaleLowerCase('tr').split(/\s+/).filter(Boolean);
+  const min = parseAmount(f.min), max = parseAmount(f.max);
+  const base = f.scope === 'all' ? db.transactions : txIn(per);
+  let list = base.filter((t) => {
     if (f.type !== 'all' && t.type !== f.type) return false;
     if (f.cat && t.categoryId !== f.cat) return false;
     if (f.acc && t.accountId !== f.acc && t.fromId !== f.acc && t.toId !== f.acc) return false;
-    if (q) {
-      const c = cm[t.categoryId] || MISSING_CAT;
-      const hay = `${c.name} ${t.note || ''} ${amountToInput(t.amount)}`.toLocaleLowerCase('tr');
-      if (!hay.includes(q)) return false;
+    if (f.status === 'planned' && !isPlanned(t)) return false;
+    if (f.status === 'done' && isPlanned(t)) return false;
+    if (f.status === 'rec' && !t.recId) return false;
+    if (Number.isFinite(min) && t.amount < min) return false;
+    if (Number.isFinite(max) && t.amount > max) return false;
+    if (words.length) {
+      const hay = txHaystack(t, cm);
+      if (!words.every((w) => hay.includes(w))) return false;
     }
     return true;
-  }));
+  });
+  list = f.sort === 'amount' ? [...list].sort((a, b) => b.amount - a.amount || (b.date < a.date ? -1 : 1)) : sortTx(list);
   const t = totals(list);
+  const n = txFilterCount(f);
 
   const groups = [];
-  for (const x of list) {
-    if (!groups.length || groups[groups.length - 1].date !== x.date) groups.push({ date: x.date, items: [] });
-    groups[groups.length - 1].items.push(x);
+  if (f.sort === 'date') {
+    for (const x of list) {
+      if (!groups.length || groups[groups.length - 1].date !== x.date) groups.push({ date: x.date, items: [] });
+      groups[groups.length - 1].items.push(x);
+    }
   }
   const catOpts = (type, label) => `<optgroup label="${label}">${db.categories.filter((c) => c.type === type).sort((a, b) => a.name.localeCompare(b.name, 'tr'))
     .map((c) => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`;
+  const sel = (v, cur) => (v === cur ? 'selected' : '');
 
   return `
     ${viewHead('İşlemler')}
-    ${periodBar()}
+    ${f.scope === 'all' ? '' : periodBar()}
     <div class="filters">
-      <input type="search" placeholder="Ara: kategori, not, tutar" value="${esc(f.q)}" data-input="tx-q">
-      <div class="row">
-        <div class="seg" style="flex:1.2">
-          ${[['all', 'Tümü'], ['expense', 'Gider'], ['income', 'Gelir']].map(([v, l]) => `<button data-action="tx-type" data-val="${v}" class="${f.type === v ? 'on' : ''}">${l}</button>`).join('')}
-        </div>
-        <select data-change="tx-cat" aria-label="Kategori filtresi">
-          <option value="">Tüm kategoriler</option>
-          ${catOpts('expense', 'Gider')}${catOpts('income', 'Gelir')}
-        </select>
+      <div class="search-row">
+        <span class="search-box">${icon('search', 18)}<input type="search" placeholder="Ara: mağaza, not, tutar, hesap, kişi" value="${esc(f.q)}" data-input="tx-q" enterkeyhint="search"></span>
+        <button class="btn filt-btn ${f.more ? 'on' : ''}" data-action="tx-more" aria-label="Filtreler">${icon('sliders-horizontal', 18)}${n ? `<i class="dot-count">${n}</i>` : ''}</button>
       </div>
-      ${db.accounts.length ? `<select data-change="tx-acc" aria-label="Kart / hesap filtresi">
-        <option value="">Tüm kartlar ve hesaplar</option>
-        ${db.accounts.map((a) => `<option value="${a.id}" ${f.acc === a.id ? 'selected' : ''}>${esc(accLabel(a))}</option>`).join('')}
-      </select>` : ''}
+      <div class="seg">
+        <button data-action="tx-scope" data-val="period" class="${f.scope === 'period' ? 'on' : ''}">Seçili dönem</button>
+        <button data-action="tx-scope" data-val="all" class="${f.scope === 'all' ? 'on' : ''}">Tüm zamanlar</button>
+      </div>
+      ${f.more ? `<div class="card filt-panel">
+        <div class="filt-grid">
+          <label><small>Tür</small><select data-change="tx-kind">${TX_KINDS.map(([v, l]) => `<option value="${v}" ${sel(v, f.type)}>${l}</option>`).join('')}</select></label>
+          <label><small>Durum</small><select data-change="tx-status">
+            <option value="all" ${sel('all', f.status)}>Hepsi</option>
+            <option value="done" ${sel('done', f.status)}>Gerçekleşen</option>
+            <option value="planned" ${sel('planned', f.status)}>Planlı / onay bekleyen</option>
+            <option value="rec" ${sel('rec', f.status)}>Düzenli kayıtlar</option>
+          </select></label>
+          <label class="wide"><small>Kategori</small><select data-change="tx-cat">
+            <option value="">Tüm kategoriler</option>
+            ${catOpts('expense', 'Gider')}${catOpts('income', 'Gelir')}
+          </select></label>
+          ${db.accounts.length ? `<label class="wide"><small>Kart / hesap</small><select data-change="tx-acc">
+            <option value="">Tüm kartlar ve hesaplar</option>
+            ${db.accounts.map((a) => `<option value="${a.id}" ${sel(a.id, f.acc)}>${esc(accLabel(a))}</option>`).join('')}
+          </select></label>` : ''}
+          <label><small>En az (${esc(db.settings.currency)})</small><input inputmode="decimal" placeholder="0" value="${esc(f.min)}" data-change="tx-min"></label>
+          <label><small>En çok (${esc(db.settings.currency)})</small><input inputmode="decimal" placeholder="Sınırsız" value="${esc(f.max)}" data-change="tx-max"></label>
+          <label class="wide"><small>Sıralama</small><select data-change="tx-sort">
+            <option value="date" ${sel('date', f.sort)}>Tarihe göre (yeniden eskiye)</option>
+            <option value="amount" ${sel('amount', f.sort)}>Tutara göre (büyükten küçüğe)</option>
+          </select></label>
+        </div>
+        ${n ? `<button class="btn block" data-action="tx-clear">Filtreleri temizle</button>` : ''}
+      </div>` : n ? `<button class="link filt-clear" data-action="tx-clear">${n} filtre açık · temizle</button>` : ''}
     </div>
     <div class="mini-stats" style="margin:4px 4px 0">
       <span>${list.length} işlem</span>
       <span>Gelir <b class="inc">${money(t.inc)}</b></span>
       <span>Gider <b class="exp">${money(t.exp)}</b></span>
     </div>
-    ${groups.length
-      ? groups.map((g) => {
-          const gt = totals(g.items);
-          return `<div class="day-head"><span>${longDate(g.date)}</span><span class="${gt.net >= 0 ? 'inc' : 'exp'}">${gt.net >= 0 ? '+' : '−'}${money(Math.abs(gt.net))}</span></div>
-            <div class="list">${g.items.map((x) => txRow(x, cm)).join('')}</div>`;
-        }).join('')
-      : `<div class="card" style="margin-top:14px">${emptyState('Bu filtrelere uyan işlem yok.')}</div>`}
+    ${!list.length
+      ? `<div class="card" style="margin-top:14px">${emptyState(n ? 'Bu filtrelere uyan işlem yok.' : 'Bu dönemde işlem yok.')}</div>`
+      : f.sort === 'amount'
+        ? `<div class="list" style="margin-top:12px">${list.map((x) => txRow(x, cm, true)).join('')}</div>`
+        : groups.map((g) => {
+            const gt = totals(g.items);
+            return `<div class="day-head"><span>${longDate(g.date)}</span><span class="${gt.net >= 0 ? 'inc' : 'exp'}">${gt.net >= 0 ? '+' : '−'}${money(Math.abs(gt.net))}</span></div>
+              <div class="list">${g.items.map((x) => txRow(x, cm)).join('')}</div>`;
+          }).join('')}
   `;
 }
 
@@ -634,6 +686,8 @@ function viewSettings() {
     ${viewHead('Ayarlar')}
     ${syncCard()}
     ${pushCard()}
+    ${lockCard()}
+    ${driveCard()}
     <div class="card">
       <button class="between" style="width:100%" data-action="nav" data-view="cats"><span><b>Kategoriler</b><small class="muted" style="display:block;font-size:12px;text-align:left">${db.categories.length} kategori · ekle, düzenle, sil</small></span><span class="chev">${icon('chevron-right', 18)}</span></button>
     </div>
@@ -682,7 +736,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -1037,8 +1091,9 @@ function download(name, content, type) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
+const backupJson = () => JSON.stringify({ app: 'butcem', exportedAt: new Date().toISOString(), ...db }, null, 2);
 function exportJson() {
-  download(`butcem-yedek-${todayISO()}.json`, JSON.stringify({ app: 'butcem', exportedAt: new Date().toISOString(), ...db }, null, 2), 'application/json');
+  download(`butcem-yedek-${todayISO()}.json`, backupJson(), 'application/json');
 }
 
 function exportCsv() {
@@ -1160,7 +1215,10 @@ const actions = {
 
   'home-donut': (el) => { ui.homeDonut = el.dataset.val; render(); },
   'report-cat': (el) => { ui.reportCat = el.dataset.val; render(); },
-  'filter-cat': (el) => { ui.txFilter = { q: '', type: 'all', cat: el.dataset.id }; ui.view = 'tx'; render(); window.scrollTo(0, 0); },
+  'filter-cat': (el) => { ui.txFilter = { ...TX_FILTER0, cat: el.dataset.id }; ui.view = 'tx'; render(); window.scrollTo(0, 0); },
+  'tx-more': () => { ui.txFilter.more = !ui.txFilter.more; render(); },
+  'tx-scope': (el) => { ui.txFilter.scope = el.dataset.val; render(); },
+  'tx-clear': () => { ui.txFilter = { ...TX_FILTER0, more: ui.txFilter.more }; render(); },
   'tx-type': (el) => { ui.txFilter.type = el.dataset.val; render(); },
   'cat-tab': (el) => { ui.catTab = el.dataset.val; render(); },
 
@@ -1240,6 +1298,11 @@ const changes = {
   'tx-cat': (el) => { ui.txFilter.cat = el.value; render(); },
   'f-date': (el) => { const h = $('#f-date-hint'); if (h) h.textContent = el.value > todayISO() ? 'İleri tarihli: bu tarih gelene kadar bakiyeye ve toplamlara eklenmez.' : ''; },
   'tx-acc': (el) => { ui.txFilter.acc = el.value; render(); },
+  'tx-kind': (el) => { ui.txFilter.type = el.value; render(); },
+  'tx-status': (el) => { ui.txFilter.status = el.value; render(); },
+  'tx-sort': (el) => { ui.txFilter.sort = el.value; render(); },
+  'tx-min': (el) => { ui.txFilter.min = el.value.trim(); render(); },
+  'tx-max': (el) => { ui.txFilter.max = el.value.trim(); render(); },
   'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi'); },
   'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi'); },
   'set-currency': (el) => { setSetting('currency', el.value.trim() || '₺'); render(); toast('Kaydedildi'); },

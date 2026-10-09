@@ -62,6 +62,8 @@ function todoItems() {
       <button class="btn small" data-action="debt-pay" data-id="${s.d.id}">${borrowed ? 'Öde' : 'Tahsil et'}</button>
     </div>`);
   }
+  const dt = driveTodo();
+  if (dt) out.push(dt);
   for (const s of budgetAttention().slice(0, 2)) {
     out.push(`<button class="todo" data-action="nav" data-view="budget">
       <span class="todo-ico ${s.level === 'over' ? 'late' : 'soon'}">${icon('gauge', 18)}</span>
@@ -115,6 +117,7 @@ function viewHome() {
       </div>
       ${isCurrent ? budgetMini() : ''}
     </div>
+    ${isCurrent ? forecastLine() : ''}
     ${todos.length ? `<h2 class="sec">Yapılacaklar <span class="count">${todos.length}</span></h2><div class="list todos">${todos.join('')}</div>` : ''}
     ${isCurrent && db.transactions.some((x) => !isPlanned(x)) ? `<div style="margin-top:12px">${aiCard()}</div>` : ''}
     ${top.length ? `<div class="sec-head"><h2 class="sec">Nereye harcadın?</h2><button class="link" data-action="nav" data-view="report">Rapor ›</button></div>
