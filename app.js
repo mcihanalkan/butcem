@@ -79,6 +79,7 @@ function freshData() {
     settings: { currency: '₺', monthStartDay: 1, weekStartDay: 1, theme: 'auto' },
     categories: cats,
     transactions: [],
+    goals: [], // birikim hedefleri: [{ id, name, icon, color, target, deadline, initial }]
     debts: [], // borç/alacak: [{ id, dir: 'borrowed' | 'lent', person, amount, date, dueDate, accountId, note, closed }]
     accounts: [], // kartlar ve hesaplar: [{ id, kind: 'credit' | 'bank' | 'cash', name, bank, limit, opening, statementDay, dueDay, minPct }]
     recurring: [], // düzenli gelir/gider tanımları: [{ id, type, name, amount, categoryId, day, startDate, endDate, variable, paused, skipped: [] }]
@@ -101,6 +102,7 @@ function normalize(d) {
     recurring: Array.isArray(d.recurring) ? d.recurring : [],
     accounts: Array.isArray(d.accounts) ? d.accounts : [],
     debts: Array.isArray(d.debts) ? d.debts : [],
+    goals: Array.isArray(d.goals) ? d.goals : [],
     budgets: Array.isArray(d.budgets) ? d.budgets : [],
     pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
     sync: d.sync || null,
@@ -148,7 +150,7 @@ function setSetting(key, value) {
 function mergeBackup(backup) {
   const now = Date.now();
   let added = 0;
-  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts], ['debt', backup.debts, db.debts]]) {
+  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts], ['debt', backup.debts, db.debts], ['goal', backup.goals, db.goals]]) {
     const have = new Set(arr.map((x) => x.id));
     for (const item of list) {
       if (!item || !item.id || have.has(item.id)) continue;
@@ -437,6 +439,17 @@ function periodBar() {
 }
 
 function txRow(t, cm, showDate = false) {
+  if (t.type === 'goal') {
+    const g = goalById(t.goalId);
+    const acc = accById(t.accountId);
+    const planned = isPlanned(t);
+    const sub = [planned ? (t.date > todayISO() ? 'Planlı' : 'Onay bekliyor') : '', acc ? acc.name : 'hesaba yansımadı', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
+    return `<button class="tx${planned ? ' planned' : ''}" data-action="edit-tx" data-id="${t.id}">
+      <span class="ico" style="--c:${col(g?.color || '#30A46C')}">${g ? glyph(g.icon, 19) : icon('flag', 19)}</span>
+      <span class="tx-main"><b>${esc(goalTxTitle(t))}</b><small>${esc(sub)}</small></span>
+      <span class="amt muted">${t.role === 'withdraw' ? '+' : '−'}${money(t.amount)}</span>
+    </button>`;
+  }
   if (t.type === 'debt') {
     const acc = accById(t.accountId);
     const planned = isPlanned(t);
@@ -669,7 +682,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 25;
+const APP_VERSION = 27;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -777,6 +790,11 @@ function renderTxForm(focusAmount = false) {
       <input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(form.amountText)}" aria-label="Tutar">
       <span>${esc(db.settings.currency)}</span>
     </div>
+    <div class="field">
+      <label>Açıklama / mağaza</label>
+      <input id="f-note" placeholder="ör. A101, Shell, Ali'ye borç" value="${esc(form.note)}" maxlength="200" data-input="f-note" autocomplete="off">
+      <small class="acc-info" id="f-learn"></small>
+    </div>
     ${accountPicker(form.accountId, form.type)}
     <div class="field">
       <label>Kategori</label>
@@ -793,10 +811,6 @@ function renderTxForm(focusAmount = false) {
         <button class="chip" data-action="form-date" data-val="${t}">Bugün</button>
         <button class="chip" data-action="form-date" data-val="${y}">Dün</button>
       </div>
-    </div>
-    <div class="field">
-      <label>Not</label>
-      <input id="f-note" placeholder="İsteğe bağlı (ör. A101, Ali'ye borç…)" value="${esc(form.note)}" maxlength="200">
     </div>
     ${form.awaiting ? `<div class="await-box">
         <b>${form.date > todayISO() ? `Planlı · ${fullDay(form.date)}` : 'Onay bekliyor'}</b>
@@ -870,6 +884,7 @@ function saveTx(again, confirmNow = false) {
   } else {
     closeSheet();
   }
+  if (typeof afterTxSaved === 'function' && !again) afterTxSaved();
   if (warnings.length && !awaiting) alertToast(warnings);
   else if (confirmNow) toast(`${data.type === 'income' ? 'Geldi' : 'Ödendi'} olarak onaylandı`);
   else if (awaiting) toast(`Planlandı · ${fullDay(data.date)} günü onayın istenecek`);
@@ -1124,6 +1139,7 @@ const actions = {
   'edit-tx': (el) => {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
     if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
+    if (t?.type === 'goal') return openGoalPay(t.goalId, t.role, t.id);
     if (t?.type === 'debt') return t.role === 'repay' ? openPay(t.debtId, t.id) : openDebt(t.debtId);
     if (t?.type === 'transfer') openTransfer({ id: t.id });
     else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '', recId: t.recId || null, awaiting: !!t.awaiting });
@@ -1155,6 +1171,7 @@ const actions = {
   },
   'form-cat': (el) => {
     form.categoryId = el.dataset.id;
+    form.catTouched = true;
     $$('.cat-tile').forEach((b) => b.classList.toggle('on', b.dataset.id === form.categoryId));
   },
   'form-date': (el) => { $('#f-date').value = el.dataset.val; },
@@ -1321,7 +1338,7 @@ async function initSync() {
   }
 }
 
-const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts, debt: db.debts })[kind];
+const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts, debt: db.debts, goal: db.goals })[kind];
 const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
 const userDoc = (kind, id) => kind === 'set'
   ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
@@ -1340,10 +1357,10 @@ function startListening() {
   if (firstTime) db.sync = { uid, lastSrv: 0 };
   const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
   const remoteTimes = {};
-  let waiting = 7;
+  let waiting = 8;
   setSyncState('syncing');
 
-  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['debt', 'debt'], ['meta', 'set']]) {
+  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['debt', 'debt'], ['goal', 'goal'], ['meta', 'set']]) {
     let first = true;
     const q = fs.query(userCol(name), fs.where('srv', '>', since));
     const unsub = fs.onSnapshot(q, (snap) => {
@@ -1408,6 +1425,7 @@ function reconcileLocal(remoteTimes) {
   for (const r of db.recurring) if ((r.updatedAt || 0) > rt(`rec:${r.id}`)) touch('rec', r.id);
   for (const a of db.accounts) if ((a.updatedAt || 0) > rt(`acc:${a.id}`)) touch('acc', a.id);
   for (const x of db.debts) if ((x.updatedAt || 0) > rt(`debt:${x.id}`)) touch('debt', x.id);
+  for (const x of db.goals) if ((x.updatedAt || 0) > rt(`goal:${x.id}`)) touch('goal', x.id);
   for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
   if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
 }

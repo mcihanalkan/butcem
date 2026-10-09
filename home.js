@@ -30,11 +30,11 @@ function todoItems() {
   for (const t of awaitingDue()) {
     const tr = t.type === 'transfer';
     const c = catMap()[t.categoryId] || MISSING_CAT;
-    const title = t.type === 'debt' ? debtTxTitle(t) : tr ? (accById(t.toId)?.kind === 'credit' ? `${accById(t.toId).name} ödemesi` : 'Transfer') : (t.note || c.name);
-    const ask = tr ? 'Gönderildi mi?' : t.type === 'debt' ? (t.flow === 'in' ? 'Geldi mi?' : 'Ödendi mi?') : t.type === 'income' ? 'Geldi mi?' : 'Ödendi mi?';
+    const title = t.type === 'goal' ? goalTxTitle(t) : t.type === 'debt' ? debtTxTitle(t) : tr ? (accById(t.toId)?.kind === 'credit' ? `${accById(t.toId).name} ödemesi` : 'Transfer') : (t.note || c.name);
+    const ask = tr ? 'Gönderildi mi?' : t.type === 'goal' ? 'Ayrıldı mı?' : t.type === 'debt' ? (t.flow === 'in' ? 'Geldi mi?' : 'Ödendi mi?') : t.type === 'income' ? 'Geldi mi?' : 'Ödendi mi?';
     const late = t.date < todayISO();
     out.push(`<div class="todo">
-      <span class="todo-ico ${late ? 'late' : 'soon'}">${tr ? icon('arrow-left-right', 18) : t.type === 'debt' ? icon('hand-coins', 18) : glyph(c.icon, 18)}</span>
+      <span class="todo-ico ${late ? 'late' : 'soon'}">${tr ? icon('arrow-left-right', 18) : t.type === 'debt' ? icon('hand-coins', 18) : t.type === 'goal' ? icon('flag', 18) : glyph(c.icon, 18)}</span>
       <span class="todo-main"><b>${esc(title)} · ${money(t.amount)}</b><small>${ask} · ${shortDay(t.date)}</small></span>
       <button class="btn small ok" data-action="edit-tx" data-id="${t.id}">Onayla</button>
     </div>`);
@@ -104,6 +104,7 @@ function viewHome() {
   const recent = sortTx(list).slice(0, 5);
 
   return `${head}
+    ${quickBar()}
     ${monthNav(per, 'home')}
     <div class="hero">
       <small>${isCurrent ? 'Bu ay kalan' : 'Ay sonu kalan'}</small>
@@ -133,17 +134,18 @@ function viewHome() {
 /* ------------------------------ Plan ------------------------------ */
 
 function viewPlan() {
-  const tab = ui.planTab === 'recurring' ? 'recurring' : 'budget';
+  const tab = ['recurring', 'goals'].includes(ui.planTab) ? ui.planTab : 'budget';
   const att = attentionItems().length;
-  const right = tab === 'budget'
-    ? `<button class="btn small" data-action="bud-new">+ Limit</button>`
+  const right = tab === 'budget' ? `<button class="btn small" data-action="bud-new">+ Limit</button>`
+    : tab === 'goals' ? `<button class="btn small" data-action="goal-new">+ Hedef</button>`
     : `<button class="btn small" data-action="rec-new">+ Ekle</button>`;
   return `${viewHead('Plan', right)}
     <div class="seg tabs">
       <button data-action="plan-tab" data-val="budget" class="${tab === 'budget' ? 'on' : ''}">Bütçe</button>
       <button data-action="plan-tab" data-val="recurring" class="${tab === 'recurring' ? 'on' : ''}">Düzenli${att ? ` <i class="dot-count">${att}</i>` : ''}</button>
+      <button data-action="plan-tab" data-val="goals" class="${tab === 'goals' ? 'on' : ''}">Hedefler</button>
     </div>
-    ${tab === 'budget' ? viewBudget() : viewRecurring()}`;
+    ${tab === 'budget' ? viewBudget() : tab === 'goals' ? viewGoals() : viewRecurring()}`;
 }
 
 /* --------------------------- menü rozetleri --------------------------- */

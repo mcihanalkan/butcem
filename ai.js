@@ -236,6 +236,8 @@ function aiContext() {
     hesaplar: db.accounts.filter((a) => a.kind !== 'credit').map((a) => ({ ad: a.name, tur: a.kind === 'cash' ? 'nakit' : 'banka', bakiye: tl(accBalance(a)) })),
     borclar: db.debts.map(debtStatus).filter((s) => !s.closed).map((s) => ({ kisi: s.d.person, yon: isBorrowed(s.d) ? 'benim borcum' : 'bana borçlu', kalan: tl(s.remaining), vade: s.d.dueDate, gecikti: s.level === 'late' })),
     duzenliOdemeler: db.recurring.filter((r) => !r.paused).map((r) => ({ ad: recName(r), tur: r.type === 'income' ? 'gelir' : 'gider', tutar: tl(r.amount), siklik: freqText(r) })),
+    hedefler: db.goals.map(goalStatus).map((s) => ({ ad: s.g.name, hedef: tl(s.g.target), biriken: tl(s.saved), tarih: s.g.deadline, aylikGereken: s.perMonth ? tl(s.perMonth) : null })),
+    abonelikler: subscriptions().filter((s) => !s.paused).map((s) => ({ ad: recName(s.r), aylik: tl(s.monthly), zam: s.raise ? `${tl(s.raise.from)} → ${tl(s.raise.to)}` : null })),
     hizliDegerlendirme: { puan: L.score, tespitler: L.findings.map((f) => f.text) },
     giderKategorileri: db.categories.filter((c) => c.type === 'expense').map((c) => c.name),
   };

@@ -589,3 +589,26 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 .scan-loading small { color: var(--muted); font-size: 13px; font-weight: 500; max-width: 320px; }
 .scan-loading .scan-ico:not(.warn) { animation: scanpulse 1.4s ease-in-out infinite; }
 @keyframes scanpulse { 50% { transform: scale(.92); opacity: .6; } }
+
+/* ---------- hızlı giriş çubuğu ---------- */
+.quick-bar { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; margin-bottom: 14px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
+.quick-bar:focus-within { border-color: var(--ink); box-shadow: 0 0 0 4px var(--focus); }
+.qb-ico { color: var(--muted); display: inline-flex; }
+.quick-bar input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 10px 4px; min-height: 0; box-shadow: none; font-weight: 600; }
+.quick-bar input:focus { box-shadow: none; border: 0; }
+.qb-btn { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); flex: none; }
+.qb-btn.listening { background: var(--exp); color: #fff; animation: scanpulse 1.2s ease-in-out infinite; }
+.quick-row { padding: 10px 0; }
+.quick-row .tx-main { text-align: left; }
+.quick-row .close { width: 30px; height: 30px; }
+
+/* ---------- hedefler ---------- */
+.goal-card { display: flex; flex-direction: column; gap: 2px; }
+.goal-name { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.goal-name b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goal-card .big-num { font-size: 24px; margin-top: 10px; }
+.goal-line { color: var(--muted); font-size: 12px; font-weight: 600; }
+.lchip.ok i { background: var(--inc); }
+
+/* ---------- abonelikler ---------- */
+.subs-card { display: flex; align-items: center; gap: 12px; text-align: left; }

@@ -28,6 +28,11 @@ function accBalance(a, until = todayISO()) {
   const credit = a.kind === 'credit';
   for (const t of db.transactions) {
     if (t.date > until || t.awaiting || !accCounts(a, t)) continue;
+    if (t.type === 'goal') {
+      // Hedefe para koymak hesaptan çıkar, hedeften çekmek hesaba girer
+      if (t.accountId === a.id) v += (t.role === 'withdraw' ? 1 : -1) * (credit ? -t.amount : t.amount);
+      continue;
+    }
     if (t.type === 'debt') {
       // Borç hareketi: giren para hesapta bakiyeyi artırır (kartta borcu azaltır), çıkan tersi
       if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount);
@@ -557,7 +562,7 @@ Object.assign(actions, {
   'x-fee-off': () => { syncTransfer(); xfer.showFee = false; xfer.feeText = ''; renderTransfer(); },
   'x-save': () => saveTransfer(),
   'x-confirm': () => saveTransfer(true),
-  'form-acc': (el) => { form.accountId = pickAccount(el); },
+  'form-acc': (el) => { form.accountId = pickAccount(el); form.accTouched = true; },
 });
 
 document.addEventListener('input', (e) => {

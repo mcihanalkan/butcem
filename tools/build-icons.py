@@ -12,7 +12,8 @@ UI = ['house', 'list', 'target', 'credit-card', 'chart-column', 'settings', 'plu
       'info', 'clock', 'calendar', 'repeat', 'trash-2', 'pencil', 'search', 'refresh-cw', 'cloud', 'cloud-off', 'log-out',
       'download', 'upload', 'file-spreadsheet', 'tags', 'wallet', 'landmark', 'banknote', 'circle-check', 'skip-forward',
       'undo-2', 'send', 'arrow-right', 'bell', 'scan-search', 'chart-no-axes-combined', 'gauge', 'lightbulb', 'message-circle',
-      'circle-plus', 'ellipsis', 'sliders-horizontal', 'arrow-left-right', 'circle-pause', 'hand-coins', 'receipt', 'percent']
+      'circle-plus', 'ellipsis', 'sliders-horizontal', 'arrow-left-right', 'circle-pause', 'hand-coins', 'receipt', 'percent',
+      'mic', 'flag', 'chart-line', 'calendar-days', 'file-text', 'printer', 'trending-down', 'badge-percent', 'party-popper', 'arrow-up', 'arrow-down', 'minus']
 
 # emoji → ikon (varsayılan kategoriler ve eski kayıtlar için)
 EMOJI = {

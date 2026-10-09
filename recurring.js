@@ -226,6 +226,7 @@ function viewRecurring() {
   const defs = [...db.recurring].sort((a, b) => (a.type !== b.type ? (a.type === 'income' ? -1 : 1) : (nextOccurrence(a) || '9999') < (nextOccurrence(b) || '9999') ? -1 : 1));
 
   return `${nav}
+    ${subsCard()}
     <div class="sum-strip two">
       ${sumBox('inc', 'Bu ay düzenli gelir', 'Gelen')}
       ${sumBox('exp', 'Bu ay düzenli gider', 'Ödenen')}
