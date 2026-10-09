@@ -30,11 +30,11 @@ function todoItems() {
   for (const t of awaitingDue()) {
     const tr = t.type === 'transfer';
     const c = catMap()[t.categoryId] || MISSING_CAT;
-    const title = tr ? (accById(t.toId)?.kind === 'credit' ? `${accById(t.toId).name} ödemesi` : 'Transfer') : (t.note || c.name);
-    const ask = tr ? 'Gönderildi mi?' : t.type === 'income' ? 'Geldi mi?' : 'Ödendi mi?';
+    const title = t.type === 'debt' ? debtTxTitle(t) : tr ? (accById(t.toId)?.kind === 'credit' ? `${accById(t.toId).name} ödemesi` : 'Transfer') : (t.note || c.name);
+    const ask = tr ? 'Gönderildi mi?' : t.type === 'debt' ? (t.flow === 'in' ? 'Geldi mi?' : 'Ödendi mi?') : t.type === 'income' ? 'Geldi mi?' : 'Ödendi mi?';
     const late = t.date < todayISO();
     out.push(`<div class="todo">
-      <span class="todo-ico ${late ? 'late' : 'soon'}">${tr ? icon('arrow-left-right', 18) : glyph(c.icon, 18)}</span>
+      <span class="todo-ico ${late ? 'late' : 'soon'}">${tr ? icon('arrow-left-right', 18) : t.type === 'debt' ? icon('hand-coins', 18) : glyph(c.icon, 18)}</span>
       <span class="todo-main"><b>${esc(title)} · ${money(t.amount)}</b><small>${ask} · ${shortDay(t.date)}</small></span>
       <button class="btn small ok" data-action="edit-tx" data-id="${t.id}">Onayla</button>
     </div>`);
@@ -52,6 +52,14 @@ function todoItems() {
       <span class="todo-ico ${s.level === 'late' ? 'late' : 'soon'}">${icon('credit-card', 18)}</span>
       <span class="todo-main"><b>${esc(s.a.name)} · ${moneyRound(s.remaining)}</b><small>${esc(dueText(s))} · ${s.minDue ? `asgari ${moneyRound(s.minDue)}` : 'asgari ödendi'}</small></span>
       <button class="btn small" data-action="xfer-new" data-to="${s.a.id}">Öde</button>
+    </div>`);
+  }
+  for (const s of debtAttention()) {
+    const borrowed = isBorrowed(s.d);
+    out.push(`<div class="todo">
+      <span class="todo-ico ${s.level === 'late' ? 'late' : 'soon'}">${icon('hand-coins', 18)}</span>
+      <span class="todo-main"><b>${borrowed ? 'Borç' : 'Alacak'} · ${esc(s.d.person)} · ${money(s.remaining)}</b><small>${esc(dueLabel(s))}</small></span>
+      <button class="btn small" data-action="debt-pay" data-id="${s.d.id}">${borrowed ? 'Öde' : 'Tahsil et'}</button>
     </div>`);
   }
   for (const s of budgetAttention().slice(0, 2)) {
@@ -84,7 +92,7 @@ function viewHome() {
         <div class="steps">
           <button data-action="add-tx"><span>${icon('plus', 18)}</span>İlk harcamanı ya da gelirini ekle</button>
           <button data-action="nav" data-view="recurring"><span>${icon('repeat', 18)}</span>Maaş, kira, faturaları ekle</button>
-          <button data-action="nav" data-view="cards"><span>${icon('credit-card', 18)}</span>Kartlarını ve borcunu ekle</button>
+          <button data-action="nav" data-view="cards"><span>${icon('credit-card', 18)}</span>Kartlarını, borç ve alacaklarını ekle</button>
           <button data-action="nav" data-view="budget"><span>${icon('target', 18)}</span>Aylık bütçe limiti koy</button>
         </div>
       </div>`;
@@ -107,6 +115,7 @@ function viewHome() {
       ${isCurrent ? budgetMini() : ''}
     </div>
     ${todos.length ? `<h2 class="sec">Yapılacaklar <span class="count">${todos.length}</span></h2><div class="list todos">${todos.join('')}</div>` : ''}
+    ${isCurrent && db.transactions.some((x) => !isPlanned(x)) ? `<div style="margin-top:12px">${aiCard()}</div>` : ''}
     ${top.length ? `<div class="sec-head"><h2 class="sec">Nereye harcadın?</h2><button class="link" data-action="nav" data-view="report">Rapor ›</button></div>
       <div class="card spend">
         ${top.map((r) => `<button class="spend-row" data-action="filter-cat" data-id="${r.id}">
@@ -143,7 +152,7 @@ function updateNavBadges() {
   const set = (id, n) => { const el = $(id); if (el) { el.hidden = !n; el.textContent = n > 9 ? '9+' : String(n); } };
   set('#badge-plan', attentionItems().length);
   set('#badge-tx', awaitingDue().length);
-  set('#badge-cards', cardAttention().length);
+  set('#badge-cards', cardAttention().length + debtAttention().length);
 }
 
 VIEWS.home = viewHome;

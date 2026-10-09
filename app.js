@@ -79,6 +79,7 @@ function freshData() {
     settings: { currency: '₺', monthStartDay: 1, weekStartDay: 1, theme: 'auto' },
     categories: cats,
     transactions: [],
+    debts: [], // borç/alacak: [{ id, dir: 'borrowed' | 'lent', person, amount, date, dueDate, accountId, note, closed }]
     accounts: [], // kartlar ve hesaplar: [{ id, kind: 'credit' | 'bank' | 'cash', name, bank, limit, opening, statementDay, dueDay, minPct }]
     recurring: [], // düzenli gelir/gider tanımları: [{ id, type, name, amount, categoryId, day, startDate, endDate, variable, paused, skipped: [] }]
     budgets: [], // aylık limitler: [{ id, scope: 'total' | 'cat', categoryId, amount, alertAt, rollover }]
@@ -99,6 +100,7 @@ function normalize(d) {
     deleted: (Array.isArray(d.deleted) ? d.deleted : []).map((x) => ({ kind: 'tx', ...x })),
     recurring: Array.isArray(d.recurring) ? d.recurring : [],
     accounts: Array.isArray(d.accounts) ? d.accounts : [],
+    debts: Array.isArray(d.debts) ? d.debts : [],
     budgets: Array.isArray(d.budgets) ? d.budgets : [],
     pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
     sync: d.sync || null,
@@ -146,7 +148,7 @@ function setSetting(key, value) {
 function mergeBackup(backup) {
   const now = Date.now();
   let added = 0;
-  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts]]) {
+  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts], ['debt', backup.debts, db.debts]]) {
     const have = new Set(arr.map((x) => x.id));
     for (const item of list) {
       if (!item || !item.id || have.has(item.id)) continue;
@@ -435,6 +437,16 @@ function periodBar() {
 }
 
 function txRow(t, cm, showDate = false) {
+  if (t.type === 'debt') {
+    const acc = accById(t.accountId);
+    const planned = isPlanned(t);
+    const sub = [planned ? (t.date > todayISO() ? 'Planlı' : 'Onay bekliyor') : '', acc ? acc.name : 'hesaba yansımadı', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note && t.role === 'repay' ? t.note : ''].filter(Boolean).join(' · ');
+    return `<button class="tx${planned ? ' planned' : ''}" data-action="edit-tx" data-id="${t.id}">
+      <span class="ico" style="--c:#5F6B7A">${icon('hand-coins', 19)}</span>
+      <span class="tx-main"><b>${esc(debtTxTitle(t))}</b><small>${esc(sub)}</small></span>
+      <span class="amt ${t.flow === 'in' ? 'inc' : 'exp'}">${t.flow === 'in' ? '+' : '−'}${money(t.amount)}</span>
+    </button>`;
+  }
   if (t.type === 'transfer') {
     const from = accById(t.fromId), to = accById(t.toId);
     const title = to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer';
@@ -654,7 +666,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 13;
+const APP_VERSION = 15;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -1051,6 +1063,7 @@ const actions = {
   'edit-tx': (el) => {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
     if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
+    if (t?.type === 'debt') return t.role === 'repay' ? openPay(t.debtId, t.id) : openDebt(t.debtId);
     if (t?.type === 'transfer') openTransfer({ id: t.id });
     else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '', recId: t.recId || null, awaiting: !!t.awaiting });
   },
@@ -1236,7 +1249,7 @@ async function initSync() {
   }
 }
 
-const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts })[kind];
+const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts, debt: db.debts })[kind];
 const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
 const userDoc = (kind, id) => kind === 'set'
   ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
@@ -1255,10 +1268,10 @@ function startListening() {
   if (firstTime) db.sync = { uid, lastSrv: 0 };
   const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
   const remoteTimes = {};
-  let waiting = 6;
+  let waiting = 7;
   setSyncState('syncing');
 
-  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['meta', 'set']]) {
+  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['debt', 'debt'], ['meta', 'set']]) {
     let first = true;
     const q = fs.query(userCol(name), fs.where('srv', '>', since));
     const unsub = fs.onSnapshot(q, (snap) => {
@@ -1321,6 +1334,7 @@ function reconcileLocal(remoteTimes) {
   for (const b of db.budgets) if ((b.updatedAt || 0) > rt(`bud:${b.id}`)) touch('bud', b.id);
   for (const r of db.recurring) if ((r.updatedAt || 0) > rt(`rec:${r.id}`)) touch('rec', r.id);
   for (const a of db.accounts) if ((a.updatedAt || 0) > rt(`acc:${a.id}`)) touch('acc', a.id);
+  for (const x of db.debts) if ((x.updatedAt || 0) > rt(`debt:${x.id}`)) touch('debt', x.id);
   for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
   if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
 }

@@ -536,3 +536,31 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 .await-box { background: color-mix(in srgb, var(--warn) 10%, var(--surface-2)); border-radius: 16px; padding: 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
 .await-box b { color: var(--warn); }
 .await-box small { color: var(--text-2); font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+
+/* ---------- borç ve alacak ---------- */
+.avatar { width: 42px; height: 42px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 14px; letter-spacing: .02em; }
+.avatar.owe { background: color-mix(in srgb, var(--exp) 12%, var(--surface)); color: var(--exp); }
+.avatar.owed { background: color-mix(in srgb, var(--inc) 12%, var(--surface)); color: var(--inc); }
+.debt-row .thin { margin-top: 8px; }
+.debt-row .thin i { background: var(--text); opacity: .75; }
+.debt-row.late .due { color: var(--exp); }
+.debt-row.soon .due { color: var(--warn); }
+.debt-row.closed { opacity: .6; }
+.debt-amt { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.debt-amt b { font-weight: 800; white-space: nowrap; letter-spacing: -.01em; }
+.debt-amt small { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.debt-hero { border-radius: 22px; padding: 18px; background: var(--surface-2); }
+.debt-hero small { display: block; color: var(--muted); font-weight: 700; font-size: 12px; }
+.debt-hero > b { display: block; font-size: 32px; font-weight: 800; letter-spacing: -.035em; margin: 2px 0 4px; }
+.debt-hero.owe > b { color: var(--exp); }
+.debt-hero.owed > b { color: var(--inc); }
+.debt-hero .bbar { background: var(--surface-3); }
+.debt-hero .bbar i { background: var(--text); }
+.debt-hero .between { color: var(--muted); font-weight: 600; }
+.warn-t { color: var(--warn); }
+
+/* ---------- analiz ---------- */
+.ai-deep { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+.setup-note { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; background: var(--surface-2); border-radius: 14px; padding: 14px; margin-top: 10px; }
+.setup-note small { color: var(--text-2); font-size: 13px; font-weight: 500; line-height: 1.5; }
+.ai-suggest { display: flex; flex-wrap: wrap; gap: 6px; }

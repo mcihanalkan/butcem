@@ -28,6 +28,11 @@ function accBalance(a, until = todayISO()) {
   const credit = a.kind === 'credit';
   for (const t of db.transactions) {
     if (t.date > until || t.awaiting || !accCounts(a, t)) continue;
+    if (t.type === 'debt') {
+      // Borç hareketi: giren para hesapta bakiyeyi artırır (kartta borcu azaltır), çıkan tersi
+      if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount);
+      continue;
+    }
     if (t.type === 'transfer') {
       if (t.toId === a.id) v += credit ? -t.amount : t.amount;
       if (t.fromId === a.id) v += credit ? t.amount : -t.amount;
@@ -99,10 +104,11 @@ function cardTile(s) {
 }
 
 function viewCards() {
+  const head = walletHead();
   const credits = db.accounts.filter((a) => a.kind === 'credit');
   const others = db.accounts.filter((a) => a.kind !== 'credit');
   if (!db.accounts.length) {
-    return `${viewHead('Kartlar')}
+    return `${head}
       <div class="card empty-card">
         <span class="empty-ico">${icon('credit-card', 26)}</span>
         <b>Kartlarını ve hesaplarını ekle</b>
@@ -118,7 +124,7 @@ function viewCards() {
   const totalDebt = cs.reduce((x, s) => x + Math.max(0, s.debt), 0);
   const totalAvail = cs.reduce((x, s) => x + Math.max(0, s.available), 0);
   const cashSum = others.reduce((x, a) => x + accBalance(a), 0);
-  return `${viewHead('Kartlar', `<button class="btn small" data-action="acc-new">+ Ekle</button>`)}
+  return `${head}
     <div class="card sum-list">
       <div><span>Toplam kart borcu</span><b class="exp">${money(totalDebt)}</b></div>
       <div><span>Kullanılabilir limit</span><b>${money(totalAvail)}</b></div>
@@ -522,7 +528,6 @@ function pickAccount(el) {
 
 /* ------------------------------ olaylar ------------------------------ */
 
-VIEWS.cards = viewCards;
 
 Object.assign(actions, {
   'acc-new': (el) => openAccForm({ kind: el.dataset.kind || 'credit' }),
