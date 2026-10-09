@@ -153,6 +153,7 @@ function localInsights() {
 async function aiGenerate(prompt, json) {
   if (!sync.app) await initSync();
   if (!sync.app) throw new Error('offline');
+  await sync.appCheckReady; // güvenlik doğrulaması hazır olmadan istek gönderme
   const mod = await import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-ai.js`);
   const ai = mod.getAI(sync.app, { backend: new mod.GoogleAIBackend() });
   let lastErr;

@@ -10,4 +10,4 @@ window.FIREBASE_CONFIG = {
 };
 
 // İsteğe bağlı: Firebase App Check için reCAPTCHA v3 site anahtarı. Tanımlanırsa analiz istekleri doğrulanır.
-// window.APP_CHECK_SITE_KEY = '...';
+window.APP_CHECK_SITE_KEY = '6LdZM-ctAAAAAGAQe4YnUyp6s8h1b8whtwd-Djqu';

@@ -663,12 +663,13 @@ function viewSettings() {
     </div>
     <p class="muted" style="text-align:center;font-size:12px">${db.transactions.length} işlem · ${db.categories.length} kategori · sürüm ${APP_VERSION}</p>
     <button class="btn block" data-action="hard-reload">Uygulamayı yenile</button>
+    ${window.APP_CHECK_SITE_KEY ? `<p class="muted" style="font-size:11px;text-align:center;margin-top:14px">Bu uygulama reCAPTCHA ile korunur; Google <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Gizlilik Politikası</a> ve <a href="https://policies.google.com/terms" target="_blank" rel="noopener">Hizmet Şartları</a> geçerlidir.</p>` : ''}
   `;
 }
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -1296,12 +1297,14 @@ async function initSync() {
     const fbApp = app.initializeApp(window.FIREBASE_CONFIG);
     sync.app = fbApp;
     // İsteğe bağlı güvenlik: firebase-config.js içinde APP_CHECK_SITE_KEY (reCAPTCHA v3) tanımlıysa App Check açılır
-    if (window.APP_CHECK_SITE_KEY) {
+    sync.appCheckReady = (async () => {
+      if (!window.APP_CHECK_SITE_KEY) return;
       try {
         const ac = await import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-app-check.js`);
-        ac.initializeAppCheck(fbApp, { provider: new ac.ReCaptchaV3Provider(window.APP_CHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+        sync.appCheck = ac.initializeAppCheck(fbApp, { provider: new ac.ReCaptchaV3Provider(window.APP_CHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
       } catch (e) { console.warn('App Check başlatılamadı', e); }
-    }
+    })();
+    await sync.appCheckReady;
     sync.auth = auth.getAuth(fbApp);
     sync.fs = fs.getFirestore(fbApp);
     auth.getRedirectResult(sync.auth).catch((e) => console.warn(e));

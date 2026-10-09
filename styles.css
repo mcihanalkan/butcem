@@ -573,3 +573,6 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 .acc-chips { flex-wrap: wrap; overflow: visible; }
 .acc-chips .chip { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tpl-chips { flex-wrap: wrap; overflow: visible; }
+
+/* reCAPTCHA rozeti "+" butonunun üstüne gelmesin (bilgilendirme notu Ayarlar'da) */
+.grecaptcha-badge { visibility: hidden !important; }
