@@ -1,26 +1,27 @@
 // Uygulama dosyalarını önbelleğe alır: internet yokken de açılır.
 // Kendi dosyalarımız: önce ağdan dener (güncel sürüm gelsin), olmazsa önbellekten verir.
 // Firebase kütüphaneleri (gstatic, sürüm numaralı): önbellekte varsa oradan verir.
-const CACHE = 'butce-v29';
+const CACHE = 'butce-v30';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=29',
-  './icons.js?v=29',
-  './app.js?v=29',
-  './budget.js?v=29',
-  './recurring.js?v=29',
-  './debts.js?v=29',
-  './accounts.js?v=29',
-  './ai.js?v=29',
-  './scan.js?v=29',
-  './smart.js?v=29',
-  './goals.js?v=29',
-  './subs.js?v=29',
-  './reports.js?v=29',
-  './home.js?v=29',
-  './start.js?v=29',
-  './firebase-config.js?v=29',
+  './styles.css?v=30',
+  './icons.js?v=30',
+  './app.js?v=30',
+  './budget.js?v=30',
+  './recurring.js?v=30',
+  './debts.js?v=30',
+  './accounts.js?v=30',
+  './ai.js?v=30',
+  './scan.js?v=30',
+  './smart.js?v=30',
+  './goals.js?v=30',
+  './subs.js?v=30',
+  './reports.js?v=30',
+  './push.js?v=30',
+  './home.js?v=30',
+  './start.js?v=30',
+  './firebase-config.js?v=30',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -38,6 +39,32 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
   );
   self.clients.claim();
+});
+
+// Bildirim geldiğinde göster (sunucu sadece veri gönderir: title, body, tag, url)
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { data: { body: e.data ? e.data.text() : '' } }; }
+  const data = d.data || {};
+  const n = d.notification || {};
+  e.waitUntil(self.registration.showNotification(data.title || n.title || 'Bütçem', {
+    body: data.body || n.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    tag: data.tag || 'butcem',
+    renotify: true,
+    data: { url: data.url || './' },
+  }));
+});
+
+// Bildirime dokununca uygulamayı aç (açıksa öne getir)
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) if (c.url.startsWith(self.registration.scope)) return c.focus();
+    return self.clients.openWindow(url);
+  }));
 });
 
 self.addEventListener('fetch', (e) => {

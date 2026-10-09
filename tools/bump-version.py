@@ -19,6 +19,7 @@ VERSIONED_FILES = [
     'goals.js',
     'subs.js',
     'reports.js',
+    'push.js',
     'home.js',
     'start.js',
 ]

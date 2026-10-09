@@ -633,6 +633,7 @@ function viewSettings() {
   return `
     ${viewHead('Ayarlar')}
     ${syncCard()}
+    ${pushCard()}
     <div class="card">
       <button class="between" style="width:100%" data-action="nav" data-view="cats"><span><b>Kategoriler</b><small class="muted" style="display:block;font-size:12px;text-align:left">${db.categories.length} kategori · ekle, düzenle, sil</small></span><span class="chev">${icon('chevron-right', 18)}</span></button>
     </div>
@@ -681,7 +682,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 
 function errorCard(e) {
   return `<div class="card empty-card">

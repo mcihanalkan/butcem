@@ -1,0 +1,32 @@
+# Bütçem bildirimleri: her gün 09:00 ve 20:00 (Türkiye saati) çalışır.
+# Gerekli gizli değer: FIREBASE_SERVICE_ACCOUNT (Firebase servis hesabı JSON'u).
+name: Bildirimler
+
+on:
+  schedule:
+    - cron: '0 6 * * *'    # 09:00 TR — sabah hatırlatmaları
+    - cron: '0 17 * * *'   # 20:00 TR — onay bekleyenler
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'morning (sabah) ya da evening (akşam)'
+        default: 'morning'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bağımlılıklar
+        working-directory: tools/notify
+        run: npm install --no-audit --no-fund --silent
+      - name: Bildirimleri gönder
+        working-directory: tools/notify
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || (github.event.schedule == '0 17 * * *' && 'evening' || 'morning') }}
+        run: node notify.mjs

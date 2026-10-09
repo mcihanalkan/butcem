@@ -12,3 +12,6 @@ window.FIREBASE_CONFIG = {
 // İsteğe bağlı: Firebase App Check için reCAPTCHA v3 site anahtarı. Tanımlanırsa analiz istekleri doğrulanır.
 // Klasik reCAPTCHA v3 Firebase'e kaydedilemediği için kapalı (Firebase artık Fraud Defense istiyor).
 // window.APP_CHECK_SITE_KEY = '6LdZM-ctAAAAAGAQe4YnUyp6s8h1b8whtwd-Djqu';
+
+// Bildirimler için Firebase Cloud Messaging "Web Push sertifikası" (genel anahtar; gizli değil).
+// window.FCM_VAPID_KEY = '...';
