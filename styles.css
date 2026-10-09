@@ -475,3 +475,14 @@ input.invalid { border-color: var(--exp) !important; }
 .xr-after { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); }
 .xr-after i { font-style: normal; opacity: .6; }
 .xsend { font-size: 16px; min-height: 52px; }
+
+/* ---------- düzenli kayıt formu ---------- */
+.opt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.opt-grid button, .wd-row button { padding: 10px 4px; border-radius: 12px; background: var(--surface-2); font-weight: 600; font-size: 13px; text-align: center; border: 2px solid transparent; }
+.opt-grid button.on, .wd-row button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.wd-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.wd-row button { padding: 10px 0; font-size: 12px; }
+.tpl-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin: -4px 0 12px; }
+.tpl-chips .chip { white-space: nowrap; }
+.rec-preview { background: color-mix(in srgb, var(--accent) 9%, var(--surface-2)); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-top: 4px; }
+.dup-note { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-radius: 12px; padding: 10px 12px; font-size: 13px; margin: 0 0 8px; }

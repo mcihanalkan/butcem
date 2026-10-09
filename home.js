@@ -115,7 +115,7 @@ function viewPlan() {
   const att = attentionItems().length;
   const right = tab === 'budget'
     ? `<button class="btn small" data-action="bud-new">+ Limit</button>`
-    : `${db.recurring.length ? `<button class="btn small" data-action="rec-manage">Yönet</button>` : ''}<button class="btn small" data-action="rec-new">+ Ekle</button>`;
+    : `<button class="btn small" data-action="rec-new">+ Ekle</button>`;
   return `${viewHead('Plan', right)}
     <div class="seg tabs">
       <button data-action="plan-tab" data-val="budget" class="${tab === 'budget' ? 'on' : ''}">🎯 Bütçe</button>

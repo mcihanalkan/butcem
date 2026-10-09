@@ -1,19 +1,19 @@
 // Uygulama dosyalarını önbelleğe alır: internet yokken de açılır.
 // Kendi dosyalarımız: önce ağdan dener (güncel sürüm gelsin), olmazsa önbellekten verir.
 // Firebase kütüphaneleri (gstatic, sürüm numaralı): önbellekte varsa oradan verir.
-const CACHE = 'butce-v8';
+const CACHE = 'butce-v9';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=8',
-  './app.js?v=8',
-  './budget.js?v=8',
-  './recurring.js?v=8',
-  './accounts.js?v=8',
-  './ai.js?v=8',
-  './home.js?v=8',
-  './start.js?v=8',
-  './firebase-config.js?v=8',
+  './styles.css?v=9',
+  './app.js?v=9',
+  './budget.js?v=9',
+  './recurring.js?v=9',
+  './accounts.js?v=9',
+  './ai.js?v=9',
+  './home.js?v=9',
+  './start.js?v=9',
+  './firebase-config.js?v=9',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

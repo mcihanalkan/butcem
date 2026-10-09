@@ -635,7 +635,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 function errorCard(e) {
   return `<div class="card empty-card">

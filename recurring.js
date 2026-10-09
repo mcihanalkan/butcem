@@ -2,17 +2,30 @@
 
 /* =====================================================================
    Düzenli gelir ve giderler: maaş, kira, faturalar, abonelikler, taksitler…
-   Her ay belirlenen günde "geldi mi / ödendi mi?" diye sorulur.
-   Onaylanınca gerçek tutar ve tarihle normal bir işlem kaydı oluşur
-   (işlemde recId + recDate tutulur; o işlem silinirse kayıt tekrar "bekliyor"a döner).
+   Sıklık: her hafta, 2 haftada bir, her ay, 3 ayda bir, 6 ayda bir, her yıl.
+   Bitiş: süresiz, belirli bir tarihe kadar ya da belirli sayıda (taksit gibi).
+   Günü gelince "geldi mi / ödendi mi?" diye sorulur; onaylanınca gerçek tutar ve
+   tarihle normal bir işlem kaydı oluşur (recId + recDate; o işlem silinirse tekrar "bekliyor").
    ===================================================================== */
 
 ui.recAnchor = todayISO();
+
+const FREQS = {
+  weekly: { label: 'Her hafta', unit: 'w', n: 1 },
+  biweekly: { label: '2 haftada bir', unit: 'w', n: 2 },
+  monthly: { label: 'Her ay', unit: 'm', n: 1 },
+  quarterly: { label: '3 ayda bir', unit: 'm', n: 3 },
+  semiannual: { label: '6 ayda bir', unit: 'm', n: 6 },
+  yearly: { label: 'Her yıl', unit: 'm', n: 12 },
+};
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0]; // Pzt … Paz
 
 const lastDayOf = (y, m) => new Date(y, m + 1, 0).getDate();
 const dueIn = (y, m, day) => toISO(new Date(y, m, Math.min(day, lastDayOf(y, m))));
 const recName = (r) => r.name || (catMap()[r.categoryId] || MISSING_CAT).name;
 const recCat = (r) => catMap()[r.categoryId] || MISSING_CAT;
+const recFreq = (r) => (FREQS[r.freq] ? r.freq : 'monthly');
+const fullDay = (iso) => { const d = fromISO(iso); return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`; };
 
 // Türkçe sıra eki: 1'i, 2'si, 3'ü, 4'ü, 5'i, 6'sı, 7'si, 8'i, 9'u, 10'u, 20'si, 30'u …
 function dayLabel(n) {
@@ -22,19 +35,47 @@ function dayLabel(n) {
   return `Her ayın ${n}'${n % 10 === 0 ? tens[n] : ones[n % 10]}`;
 }
 
+function freqText(r) {
+  const f = recFreq(r), F = FREQS[f];
+  const s = r.startDate ? fromISO(r.startDate) : new Date();
+  if (F.unit === 'w') return `${F.label} ${DAYS[s.getDay()]}`;
+  if (f === 'monthly') return dayLabel(r.day);
+  if (f === 'yearly') return `Her yıl ${s.getDate()} ${MONTHS[s.getMonth()]}`;
+  return `${F.label}, ayın ${r.day >= 31 ? 'son günü' : `${r.day}. günü`}`;
+}
+
+function endText(r) {
+  if (!r.endDate) return 'süresiz';
+  return r.count ? `${r.count} kez · son ${fullDay(r.endDate)}` : `bitiş ${fullDay(r.endDate)}`;
+}
+
 /* Verilen aralıkta düşen vade tarihleri */
 function occurrences(rec, from, to) {
   const out = [];
-  const a = fromISO(from), b = fromISO(to);
-  for (let y = a.getFullYear(), m = a.getMonth(); y < b.getFullYear() || (y === b.getFullYear() && m <= b.getMonth()); m === 11 ? (y++, m = 0) : m++) {
-    const due = dueIn(y, m, rec.day);
-    if (due < from || due > to) continue;
-    if (rec.startDate && due < rec.startDate) continue;
-    if (rec.endDate && due > rec.endDate) continue;
-    out.push(due);
+  const F = FREQS[recFreq(rec)];
+  const start = rec.startDate || from;
+  const lo = from > start ? from : start;
+  const hi = rec.endDate && rec.endDate < to ? rec.endDate : to;
+  if (lo > hi) return out;
+  const s = fromISO(start);
+  if (F.unit === 'w') {
+    const step = 7 * F.n;
+    const k = Math.max(0, Math.ceil(dayDiff(s, fromISO(lo)) / step));
+    for (let d = addDays(s, k * step), i = 0; toISO(d) <= hi && i < 400; d = addDays(d, step), i++) out.push(toISO(d));
+  } else {
+    const day = rec.day || s.getDate();
+    const l = fromISO(lo);
+    let k = Math.max(0, Math.floor(((l.getFullYear() - s.getFullYear()) * 12 + l.getMonth() - s.getMonth()) / F.n) - 1);
+    for (let i = 0; i < 400; i++, k++) {
+      const due = dueIn(s.getFullYear(), s.getMonth() + k * F.n, day);
+      if (due > hi) break;
+      if (due >= lo) out.push(due);
+    }
   }
   return out;
 }
+
+const nextOccurrence = (rec, from = todayISO()) => occurrences(rec, from, toISO(addDays(fromISO(from), 800)))[0] || null;
 
 function occStatus(rec, due) {
   const tx = db.transactions.find((t) => t.recId === rec.id && t.recDate === due);
@@ -45,8 +86,6 @@ function occStatus(rec, due) {
   if (due === today) return { state: 'today', days: 0 };
   return { state: 'upcoming', days: dayDiff(fromISO(today), fromISO(due)) };
 }
-
-const isPendingState = (s) => s === 'late' || s === 'today' || s === 'upcoming';
 
 /* Dönemdeki tüm vadeler; içinde bulunulan dönemse önceki 2 aydan kalan gecikmişler de eklenir. */
 function recItems(per) {
@@ -97,13 +136,16 @@ function attentionItems() {
   return recItems(budgetPeriod(todayISO())).filter((it) => it.state === 'late' || it.state === 'today');
 }
 
+// Aynı kaydın iki kez eklenip eklenmediğini anlamak için
+const dupKey = (r) => `${r.type}|${recName(r).toLocaleLowerCase('tr').trim()}|${r.amount}|${recFreq(r)}`;
+
 /* ------------------------------ görünüm ------------------------------ */
 
 function stateText(it) {
   const inc = it.rec.type === 'income';
   switch (it.state) {
     case 'done': return `${inc ? 'Geldi' : 'Ödendi'} · ${shortDay(it.tx.date)}`;
-    case 'skipped': return 'Bu ay atlandı';
+    case 'skipped': return 'Atlandı';
     case 'late': return `${it.days} gün gecikti`;
     case 'today': return 'Bugün';
     default: return it.days === 1 ? 'Yarın' : `${it.days} gün sonra`;
@@ -119,10 +161,21 @@ function occRow(it) {
     <button class="occ-tap" data-action="rec-occ" data-id="${it.rec.id}" data-due="${it.due}">
       <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
       <span class="occ-main"><b>${esc(recName(it.rec))}</b><small>${shortDay(it.due)} · <span class="st">${esc(stateText(it))}</span></small></span>
-      ${pending ? '' : `<span class="amt ${it.state === 'done' ? (inc ? 'inc' : 'exp') : 'muted'}">${inc ? '+' : '−'}${moneyRound(amount)}</span>`}
+      ${pending ? '' : `<span class="amt ${it.state === 'done' ? (inc ? 'inc' : 'exp') : 'muted'}">${inc ? '+' : '−'}${money(amount)}</span>`}
     </button>
-    ${pending ? `<button class="btn small ok" data-action="rec-confirm" data-id="${it.rec.id}" data-due="${it.due}">${inc ? 'Geldi' : 'Ödendi'} · ${moneyRound(amount)}</button>` : ''}
+    ${pending ? `<button class="btn small ok" data-action="rec-confirm" data-id="${it.rec.id}" data-due="${it.due}">${inc ? 'Geldi' : 'Ödendi'} · ${money(amount)}</button>` : ''}
   </div>`;
+}
+
+function recDefRow(r, dups) {
+  const c = recCat(r);
+  const next = r.paused ? null : nextOccurrence(r);
+  const sub = [freqText(r), r.paused ? 'duraklatıldı' : next ? `sıradaki ${fullDay(next)}` : 'bitti', endText(r)].join(' · ');
+  return `<button class="tx" data-action="rec-edit" data-id="${r.id}">
+    <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
+    <span class="tx-main"><b>${esc(recName(r))}${dups.has(dupKey(r)) ? ' <span class="lchip warn">2 kez eklenmiş</span>' : ''}</b><small>${esc(sub)}</small></span>
+    <span class="amt ${r.type === 'income' ? 'inc' : 'exp'}">${r.type === 'income' ? '+' : '−'}${money(r.amount)}</span>
+  </button>`;
 }
 
 const REC_TEMPLATES = [
@@ -136,9 +189,9 @@ const REC_TEMPLATES = [
   { type: 'expense', name: 'Aidat', cat: 'Aidat', icon: '🏢' },
   { type: 'expense', name: 'Abonelik', cat: 'Abonelikler', icon: '📺' },
   { type: 'expense', name: 'Kredi taksiti', cat: 'Kredi / Borç', icon: '🏦' },
+  { type: 'income', name: 'Harçlık', cat: 'Harçlık', icon: '👛', freq: 'weekly' },
+  { type: 'expense', name: 'Sigorta', cat: 'Sigorta', icon: '🛡️', freq: 'yearly' },
 ];
-
-const templateGrid = () => `<div class="tpl-grid">${REC_TEMPLATES.map((t, i) => `<button class="cat-tile" data-action="rec-tpl" data-i="${i}"><span>${t.icon}</span><em>${esc(t.name)}</em></button>`).join('')}</div>`;
 
 function viewRecurring() {
   const per = getPeriod({ mode: 'month', anchor: ui.recAnchor });
@@ -149,9 +202,10 @@ function viewRecurring() {
       <div class="card empty-card">
         <span class="big">📅</span>
         <b>Düzenli gelir ve giderler</b>
-        <p>Maaş, kira, fatura, abonelik… Günü gelince "geldi mi / ödendi mi?" diye sorayım.</p>
+        <p>Maaş, kira, fatura, abonelik, taksit… Günü gelince "geldi mi / ödendi mi?" diye sorayım.</p>
       </div>
-      <div class="card"><h3>Hızlı ekle</h3>${templateGrid()}
+      <div class="card"><h3>Hızlı ekle</h3>
+        <div class="tpl-grid">${REC_TEMPLATES.map((t, i) => `<button class="cat-tile" data-action="rec-tpl" data-i="${i}"><span>${t.icon}</span><em>${esc(t.name)}</em></button>`).join('')}</div>
         <button class="btn block" style="margin-top:12px" data-action="rec-new">+ Başka bir şey ekle</button>
       </div>`;
   }
@@ -162,38 +216,27 @@ function viewRecurring() {
   const rest = items.filter((it) => !(it.state === 'late' || it.state === 'today'));
   const sumBox = (k, label, doneLabel) => `<div>
     <small>${label}</small>
-    <b class="${k === 'inc' ? 'inc' : 'exp'}">${moneyRound(s[k].exp)}</b>
-    <span>${doneLabel} ${moneyRound(s[k].done)}${s[k].wait ? ` · bekleyen ${moneyRound(s[k].wait)}` : ''}</span>
+    <b class="${k === 'inc' ? 'inc' : 'exp'}">${money(s[k].exp)}</b>
+    <span>${doneLabel} ${money(s[k].done)}</span>
   </div>`;
+
+  const counts = {};
+  for (const r of db.recurring) counts[dupKey(r)] = (counts[dupKey(r)] || 0) + 1;
+  const dups = new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+  const defs = [...db.recurring].sort((a, b) => (a.type !== b.type ? (a.type === 'income' ? -1 : 1) : (nextOccurrence(a) || '9999') < (nextOccurrence(b) || '9999') ? -1 : 1));
 
   return `${nav}
     <div class="sum-strip two">
-      ${sumBox('inc', 'Düzenli gelir', 'Gelen')}
-      ${sumBox('exp', 'Düzenli gider', 'Ödenen')}
+      ${sumBox('inc', 'Bu ay düzenli gelir', 'Gelen')}
+      ${sumBox('exp', 'Bu ay düzenli gider', 'Ödenen')}
     </div>
     ${att.length ? `<h2 class="sec">Onay bekleyenler</h2><div class="list occ-list">${att.map(occRow).join('')}</div>` : ''}
     <h2 class="sec">Bu ay</h2>
-    ${rest.length ? `<div class="list occ-list">${rest.map(occRow).join('')}</div>` : '<p class="muted small">Bu ay için başka kayıt yok.</p>'}
+    ${rest.length ? `<div class="list occ-list">${rest.map(occRow).join('')}</div>` : '<p class="muted small" style="margin:0 4px">Bu ay için başka gelir/gider yok.</p>'}
+    <div class="sec-head"><h2 class="sec">Düzenli kayıtların (${db.recurring.length})</h2><button class="link" data-action="rec-new">+ Ekle</button></div>
+    ${dups.size ? `<p class="dup-note">⚠️ Bazı kayıtlar iki kez eklenmiş görünüyor. Fazla olana dokunup silebilirsin.</p>` : ''}
+    <div class="list">${defs.map((r) => recDefRow(r, dups)).join('')}</div>
   `;
-}
-
-// Tüm düzenli kayıtları yönetme penceresi
-function openRecManage() {
-  const list = [...db.recurring].sort((a, b) => (a.type === b.type ? a.day - b.day : a.type === 'income' ? -1 : 1));
-  openSheet(`
-    <div class="sheet-head"><h2>Düzenli kayıtlar</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-    ${list.length ? `<div class="list" style="box-shadow:none">${list.map((r) => {
-      const c = recCat(r);
-      return `<button class="tx" data-action="rec-edit" data-id="${r.id}">
-        <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
-        <span class="tx-main"><b>${esc(recName(r))}</b><small>${dayLabel(r.day)}${r.variable ? ' · değişken' : ''}${r.endDate ? ` · ${shortDay(r.endDate)} ${fromISO(r.endDate).getFullYear()}'e kadar` : ''}${r.paused ? ' · duraklatıldı' : ''}</small></span>
-        <span class="amt ${r.type === 'income' ? 'inc' : 'exp'}">${moneyRound(r.amount)}</span>
-      </button>`;
-    }).join('')}</div>` : ''}
-    <h3 style="margin-top:16px">Ekle</h3>
-    ${templateGrid()}
-    <button class="btn block" style="margin-top:10px" data-action="rec-new">+ Başka bir şey ekle</button>
-  `);
 }
 
 /* -------------------------- onay penceresi -------------------------- */
@@ -223,7 +266,7 @@ function openConfirm(recId, due) {
   if (st.state === 'skipped') {
     openSheet(`
       <div class="sheet-head"><h2>${esc(recName(rec))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-      <p>${shortDay(due)} tarihli ${inc ? 'gelir' : 'ödeme'} bu ay için <b>atlandı</b> olarak işaretli.</p>
+      <p>${fullDay(due)} tarihli ${inc ? 'gelir' : 'ödeme'} <b>atlandı</b> olarak işaretli.</p>
       <div class="btn-stack"><button class="btn primary" data-action="rec-unskip">Atlamayı geri al</button></div>`);
     return;
   }
@@ -231,17 +274,17 @@ function openConfirm(recId, due) {
   openSheet(`
     <div class="sheet-head"><h2>${esc(recName(rec))} ${inc ? 'geldi mi?' : 'ödendi mi?'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
     <div class="preview"><span class="ico" style="--c:${c.color}">${esc(c.icon)}</span><span><b>Beklenen: ${money(rec.amount)}</b><small class="muted" style="display:block">${longDate(due)}${st.state === 'late' ? ` · <span class="exp">${st.days} gün gecikti</span>` : ''}</small></span></div>
-    <div class="field"><label>${inc ? 'Gelen' : 'Ödenen'} tutar${rec.variable ? ' (bu ayki gerçek tutarı yaz)' : ''}</label>
+    <div class="field"><label>${inc ? 'Gelen' : 'Ödenen'} tutar${rec.variable ? ' (bu seferki gerçek tutarı yaz)' : ''}</label>
       <div class="amount-field"><input id="rc-amount" inputmode="decimal" autocomplete="off" value="${amountToInput(rec.amount)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
+    ${accountPicker(recConfirm.accountId, rec.type, 'rc-acc')}
     <div class="field"><label>Tarih</label>
       <input type="date" id="rc-date" value="${defDate}">
       <div class="chips"><button class="chip" data-action="rc-date" data-val="${due}">Vade günü</button><button class="chip" data-action="rc-date" data-val="${today}">Bugün</button></div>
     </div>
-    ${accountPicker(recConfirm.accountId, rec.type, 'rc-acc')}
-    <label class="check"><input type="checkbox" id="rc-update"><span><b>Sonraki aylar için de bu tutarı kullan</b><small>Maaşın arttıysa ya da abonelik ücreti değiştiyse işaretle.</small></span></label>
+    <label class="check"><input type="checkbox" id="rc-update"><span><b>Sonrakiler için de bu tutarı kullan</b><small>Maaşın arttıysa ya da ücret değiştiyse işaretle.</small></span></label>
     <div class="actions">
-      <button class="btn" data-action="rec-skip">⏭️ Bu ay atla</button>
+      <button class="btn" data-action="rec-skip">⏭️ Bu sefer atla</button>
       <button class="btn primary" data-action="rec-do-confirm">${inc ? '✓ Geldi' : '✓ Ödendi'}</button>
     </div>`);
   if (rec.variable) setTimeout(() => { const a = $('#rc-amount'); a?.focus(); a?.select(); }, 60);
@@ -258,7 +301,7 @@ function confirmOccurrence() {
   const before = budgetSnapshot(date);
   const accountId = recConfirm.accountId || null;
   const tx = { id: uid(), type: rec.type, amount, categoryId: rec.categoryId, date, note: recName(rec), accountId, recId: rec.id, recDate: recConfirm.due, createdAt: now, updatedAt: now };
-  // Seçilen hesabı bir sonraki ay için hatırla
+  // Seçilen hesabı bir sonraki sefer için hatırla
   if ((rec.accountId || null) !== accountId) { rec.accountId = accountId; rec.updatedAt = now; touch('rec', rec.id); }
   db.transactions.push(tx);
   touch('tx', tx.id);
@@ -282,39 +325,84 @@ function setSkip(skip) {
   save();
   closeSheet();
   render();
-  toast(skip ? 'Bu ay için atlandı' : 'Tekrar bekleniyor');
+  toast(skip ? 'Bu sefer atlandı' : 'Tekrar bekleniyor');
 }
 
 /* ---------------------------- tanım formu ---------------------------- */
 
 let recForm = null;
 
+// Ayın "day" günü: bu ay geçmediyse bu ay, geçtiyse gelecek ay
 function nextDue(day, from = todayISO()) {
   const d = fromISO(from);
   const thisMonth = dueIn(d.getFullYear(), d.getMonth(), day);
   return thisMonth >= from ? thisMonth : dueIn(d.getFullYear(), d.getMonth() + 1, day);
 }
+// Haftanın "wd" günü (0 = Pazar): from ve sonrasındaki ilk gün
+function nextWeekday(wd, from = todayISO()) {
+  const d = fromISO(from);
+  return toISO(addDays(d, (wd - d.getDay() + 7) % 7));
+}
+
+function defaultStart(f, from = todayISO()) {
+  const F = FREQS[f.freq];
+  if (F.unit === 'w') return nextWeekday(f.weekday, from);
+  if (f.freq === 'yearly') return f.startDate || from;
+  return nextDue(f.day, from);
+}
 
 function openRecForm(init = {}) {
-  const day = init.day || fromISO(todayISO()).getDate();
-  recForm = { id: null, type: 'expense', name: '', amountText: '', categoryId: null, day, startDate: null, months: '', variable: false, paused: false, ...init };
-  if (!recForm.startDate) recForm.startDate = nextDue(recForm.day);
+  const today = fromISO(todayISO());
+  recForm = {
+    id: null, type: 'expense', name: '', amountText: '', categoryId: null,
+    freq: 'monthly', day: today.getDate(), weekday: today.getDay(), startDate: null,
+    endMode: 'none', endDate: '', countText: '', variable: false, paused: false, accountId: lastAccountId(),
+    ...init,
+  };
+  if (!recForm.startDate) recForm.startDate = defaultStart(recForm);
   renderRecForm();
 }
 
 function syncRecForm() {
   if (!recForm || !$('#r-name')) return;
-  recForm.name = $('#r-name').value;
-  recForm.amountText = $('#r-amount').value;
-  recForm.startDate = $('#r-start').value || recForm.startDate;
-  recForm.months = $('#r-months').value;
+  const v = (id) => $(id)?.value;
+  recForm.name = v('#r-name');
+  recForm.amountText = v('#r-amount');
+  recForm.startDate = v('#r-start') || recForm.startDate;
+  if ($('#r-end')) recForm.endDate = v('#r-end');
+  if ($('#r-count')) recForm.countText = v('#r-count');
   recForm.variable = $('#r-var').checked;
-  const p = $('#r-paused');
-  if (p) recForm.paused = p.checked;
+  if ($('#r-paused')) recForm.paused = $('#r-paused').checked;
+}
+
+// Formdaki ayarlardan geçici bir kayıt (önizleme ve kaydetme için)
+function recFromForm(f) {
+  const r = { freq: f.freq, day: f.day, startDate: f.startDate, endDate: null, count: null };
+  if (FREQS[f.freq].unit === 'w') r.startDate = nextWeekday(f.weekday, f.startDate);
+  if (f.freq === 'yearly') r.day = fromISO(r.startDate).getDate();
+  if (f.endMode === 'date' && f.endDate) r.endDate = f.endDate;
+  if (f.endMode === 'count') {
+    const n = parseInt(f.countText, 10);
+    if (n > 0) {
+      const list = occurrences(r, r.startDate, toISO(addDays(fromISO(r.startDate), Math.min(n, 400) * 7 * FREQS[f.freq].n * (FREQS[f.freq].unit === 'w' ? 1 : 4.5) + 31)));
+      r.count = n;
+      r.endDate = list[Math.min(n, list.length) - 1] || null;
+    }
+  }
+  return r;
+}
+
+function recPreview() {
+  const f = recForm;
+  const r = recFromForm(f);
+  const next = occurrences(r, r.startDate, toISO(addDays(fromISO(r.startDate), 800))).slice(0, 3);
+  if (!next.length) return '<span class="exp">Bu ayarlarla hiç tarih oluşmuyor; bitiş tarihini kontrol et.</span>';
+  return `<b>${esc(freqText(r))}</b> · ${esc(endText(r))}<br>Sıradaki: ${next.map(fullDay).join(', ')}${next.length === 3 ? '…' : ''}`;
 }
 
 function renderRecForm() {
   const f = recForm;
+  const F = FREQS[f.freq];
   const usage = usageCounts();
   const cats = db.categories.filter((c) => c.type === f.type).sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
   const editing = !!f.id;
@@ -325,25 +413,40 @@ function renderRecForm() {
       <button data-action="rf-type" data-val="expense" class="${f.type === 'expense' ? 'on' : ''}">− Gider</button>
       <button data-action="rf-type" data-val="income" class="${f.type === 'income' ? 'on' : ''}">+ Gelir</button>
     </div>
+    ${editing ? '' : `<div class="tpl-chips">${REC_TEMPLATES.filter((t) => t.type === f.type).map((t) => `<button class="chip" data-action="rf-tpl" data-i="${REC_TEMPLATES.indexOf(t)}">${t.icon} ${esc(t.name)}</button>`).join('')}</div>`}
     <div class="field"><label>Ad</label><input id="r-name" value="${esc(f.name)}" maxlength="40" placeholder="${f.type === 'income' ? 'ör. Maaş, Burs, Kira geliri' : 'ör. Kira, Netflix, Elektrik'}"></div>
     <div class="field"><label>${f.variable ? 'Tahmini tutar' : 'Tutar'}</label>
-      <div class="amount-field"><input id="r-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(f.amountText)}"><span>${esc(db.settings.currency)}</span></div>
+      <div class="amount-field"><input id="r-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.amountText)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
-    <label class="check"><input type="checkbox" id="r-var" ${f.variable ? 'checked' : ''}><span><b>Tutar her ay değişebilir</b><small>Fatura gibi. Onaylarken o ayki gerçek tutarı girersin.</small></span></label>
+    <label class="check"><input type="checkbox" id="r-var" ${f.variable ? 'checked' : ''}><span><b>Tutar her seferinde değişebilir</b><small>Fatura gibi. Onaylarken gerçek tutarı girersin.</small></span></label>
     <div class="field"><label>Kategori</label>
       <div class="cat-grid">${cats.map((c) => `<button class="cat-tile ${f.categoryId === c.id ? 'on' : ''}" style="--c:${c.color}" data-action="rf-cat" data-id="${c.id}"><span>${esc(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}</div>
     </div>
-    <div class="field"><label>Ayın kaçında?</label>
+
+    <div class="field"><label>Ne sıklıkla?</label>
+      <div class="opt-grid">${Object.entries(FREQS).map(([k, v]) => `<button class="${f.freq === k ? 'on' : ''}" data-action="rf-freq" data-val="${k}">${v.label}</button>`).join('')}</div>
+    </div>
+    ${F.unit === 'w' ? `<div class="field"><label>Hangi gün?</label>
+      <div class="wd-row">${WEEKDAYS.map((d) => `<button class="${f.weekday === d ? 'on' : ''}" data-action="rf-wd" data-val="${d}">${DAYS_SHORT[d]}</button>`).join('')}</div>
+    </div>` : f.freq === 'yearly' ? '' : `<div class="field"><label>Ayın kaçında?</label>
       <select id="r-day" data-change="rf-day">${Array.from({ length: 31 }, (_, i) => i + 1).map((n) => `<option value="${n}" ${f.day === n ? 'selected' : ''}>${n >= 31 ? '31 / ayın son günü' : n}</option>`).join('')}</select>
+    </div>`}
+    <div class="field"><label>${f.freq === 'yearly' ? 'Tarih (her yıl bu gün)' : 'İlk tarih'}</label>
+      <input type="date" id="r-start" value="${f.startDate}" data-change="rf-start">
+      ${!editing && f.freq === 'monthly' && thisDue < todayISO() ? `<div class="chips"><button class="chip" data-action="rf-start" data-val="${thisDue}">Bu ayınkini de ekle (${shortDay(thisDue)})</button></div>` : ''}
     </div>
-    <div class="field"><label>İlk tarih</label>
-      <input type="date" id="r-start" value="${f.startDate}">
-      ${!editing && thisDue < todayISO() ? `<div class="chips"><button class="chip" data-action="rf-start" data-val="${thisDue}">Bu ayınkini de ekle (${shortDay(thisDue)})</button><button class="chip" data-action="rf-start" data-val="${nextDue(f.day)}">Gelecek aydan başla</button></div>` : ''}
+    <div class="field"><label>Ne zamana kadar?</label>
+      <div class="seg">
+        <button data-action="rf-end" data-val="none" class="${f.endMode === 'none' ? 'on' : ''}">Süresiz</button>
+        <button data-action="rf-end" data-val="date" class="${f.endMode === 'date' ? 'on' : ''}">Tarihe kadar</button>
+        <button data-action="rf-end" data-val="count" class="${f.endMode === 'count' ? 'on' : ''}">Kaç kez</button>
+      </div>
+      ${f.endMode === 'date' ? `<input type="date" id="r-end" value="${f.endDate || ''}" min="${f.startDate}" data-change="rf-refresh" style="margin-top:8px">` : ''}
+      ${f.endMode === 'count' ? `<input id="r-count" inputmode="numeric" value="${esc(f.countText)}" placeholder="ör. 12 (taksit sayısı)" data-input="rf-refresh" style="margin-top:8px">` : ''}
     </div>
-    <div class="field"><label>Kaç ay sürecek? <span class="muted">(taksit gibi; boş bırakırsan süresiz)</span></label>
-      <input id="r-months" inputmode="numeric" placeholder="Süresiz" value="${esc(f.months)}">
-    </div>
+    ${accountPicker(f.accountId, f.type, 'rf-acc')}
     ${editing ? `<label class="check"><input type="checkbox" id="r-paused" ${f.paused ? 'checked' : ''}><span><b>Duraklat</b><small>Bir süreliğine sorma (geçmiş kayıtlar kalır).</small></span></label>` : ''}
+    <div class="rec-preview" id="r-preview">${recPreview()}</div>
     <div class="actions">
       ${editing ? `<button class="btn danger" data-action="rf-delete">Sil</button>` : ''}
       <button class="btn primary" data-action="rf-save">Kaydet</button>
@@ -358,22 +461,30 @@ function saveRec() {
   if (!(amount > 0)) { $('#r-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
   if (!f.categoryId) { toast('Bir kategori seç'); return; }
   if (!f.startDate) { toast('İlk tarihi seç'); return; }
-  const months = parseInt(f.months, 10);
-  let endDate = null;
-  if (months > 0) {
-    const s = fromISO(f.startDate);
-    endDate = dueIn(s.getFullYear(), s.getMonth() + months - 1, f.day);
-  }
+  if (f.endMode === 'date' && !f.endDate) { toast('Bitiş tarihini seç'); return; }
+  if (f.endMode === 'count' && !(parseInt(f.countText, 10) > 0)) { toast('Kaç kez olacağını yaz'); return; }
+  const r = recFromForm(f);
+  if (f.endMode === 'date' && r.endDate < r.startDate) { toast('Bitiş tarihi ilk tarihten önce olamaz'); return; }
   const now = Date.now();
-  const data = { type: f.type, name: f.name.trim() || (catMap()[f.categoryId] || MISSING_CAT).name, amount, categoryId: f.categoryId, day: f.day, startDate: f.startDate, endDate, months: months > 0 ? months : null, variable: !!f.variable, paused: !!f.paused, updatedAt: now };
+  const name = f.name.trim() || (catMap()[f.categoryId] || MISSING_CAT).name;
+  const data = {
+    type: f.type, name, amount, categoryId: f.categoryId,
+    freq: f.freq, day: r.day, startDate: r.startDate, endDate: r.endDate, count: r.count,
+    variable: !!f.variable, paused: !!f.paused, accountId: f.accountId || null, updatedAt: now,
+  };
+  if (!f.id) {
+    const twin = db.recurring.find((x) => dupKey(x) === dupKey(data));
+    if (twin && !confirm(`"${recName(twin)}" zaten var (${freqText(twin)}, ${money(twin.amount)}).\nYine de ikinci kez eklensin mi?`)) return;
+  }
   let id = f.id;
-  if (id) Object.assign(db.recurring.find((r) => r.id === id), data);
+  if (id) Object.assign(db.recurring.find((x) => x.id === id), data);
   else { id = uid(); db.recurring.push({ id, skipped: [], createdAt: now, ...data }); }
   touch('rec', id);
   save();
   closeSheet();
   render();
-  toast('Düzenli kayıt kaydedildi ✓');
+  const next = nextOccurrence(data);
+  toast(`Kaydedildi ✓${next ? ` Sıradaki: ${fullDay(next)}` : ''}`);
 }
 
 function deleteRec() {
@@ -388,20 +499,35 @@ function deleteRec() {
   toast('Düzenli kayıt silindi');
 }
 
+function refreshRecPreview() {
+  syncRecForm();
+  const p = $('#r-preview');
+  if (p) p.innerHTML = recPreview();
+}
+
+function applyTemplate(t) {
+  const cat = db.categories.find((c) => c.type === t.type && c.name === t.cat);
+  const freq = t.freq || 'monthly';
+  const day = t.type === 'income' && t.cat === 'Maaş' ? db.settings.monthStartDay : t.day || fromISO(todayISO()).getDate();
+  Object.assign(recForm, { type: t.type, name: t.name, categoryId: cat?.id || recForm.categoryId, freq, day, variable: !!t.variable });
+  recForm.startDate = defaultStart(recForm);
+}
+
 /* ------------------------------ olaylar ------------------------------ */
 
 Object.assign(actions, {
   'rec-new': () => openRecForm(),
-  'rec-manage': () => openRecManage(),
-  'rec-tpl': (el) => {
-    const t = REC_TEMPLATES[Number(el.dataset.i)];
-    const cat = db.categories.find((c) => c.type === t.type && c.name === t.cat);
-    const day = t.type === 'income' && t.cat === 'Maaş' ? db.settings.monthStartDay : t.day || fromISO(todayISO()).getDate();
-    openRecForm({ type: t.type, name: t.name, categoryId: cat?.id || null, day, variable: !!t.variable });
-  },
+  'rec-tpl': (el) => { openRecForm(); applyTemplate(REC_TEMPLATES[Number(el.dataset.i)]); renderRecForm(); },
   'rec-edit': (el) => {
     const r = db.recurring.find((x) => x.id === el.dataset.id);
-    if (r) openRecForm({ id: r.id, type: r.type, name: r.name, amountText: amountToInput(r.amount), categoryId: r.categoryId, day: r.day, startDate: r.startDate, months: r.months ? String(r.months) : '', variable: !!r.variable, paused: !!r.paused });
+    if (!r) return;
+    const start = r.startDate || todayISO();
+    openRecForm({
+      id: r.id, type: r.type, name: r.name, amountText: amountToInput(r.amount), categoryId: r.categoryId,
+      freq: recFreq(r), day: r.day || fromISO(start).getDate(), weekday: fromISO(start).getDay(), startDate: start,
+      endMode: r.count ? 'count' : r.endDate ? 'date' : 'none', endDate: r.endDate || '', countText: r.count ? String(r.count) : '',
+      variable: !!r.variable, paused: !!r.paused, accountId: r.accountId || '',
+    });
   },
   'rec-occ': (el) => openConfirm(el.dataset.id, el.dataset.due),
   'rec-confirm': (el) => openConfirm(el.dataset.id, el.dataset.due),
@@ -414,13 +540,29 @@ Object.assign(actions, {
   'rec-shift': (el) => { ui.recAnchor = shiftedPeriod(Number(el.dataset.dir), { mode: 'month', anchor: ui.recAnchor }).anchor; render(); },
   'rec-today': () => { ui.recAnchor = todayISO(); render(); },
   'rf-type': (el) => { syncRecForm(); if (recForm.type !== el.dataset.val) { recForm.type = el.dataset.val; recForm.categoryId = null; } renderRecForm(); },
+  'rf-tpl': (el) => { syncRecForm(); applyTemplate(REC_TEMPLATES[Number(el.dataset.i)]); renderRecForm(); },
   'rf-cat': (el) => {
     syncRecForm();
     recForm.categoryId = el.dataset.id;
     if (!recForm.name) recForm.name = (catMap()[el.dataset.id] || MISSING_CAT).name;
     renderRecForm();
   },
-  'rf-start': (el) => { $('#r-start').value = el.dataset.val; },
+  'rf-freq': (el) => {
+    syncRecForm();
+    recForm.freq = el.dataset.val;
+    if (FREQS[recForm.freq].unit === 'w') recForm.weekday = fromISO(recForm.startDate || todayISO()).getDay();
+    if (!recForm.id) recForm.startDate = defaultStart(recForm);
+    renderRecForm();
+  },
+  'rf-wd': (el) => {
+    syncRecForm();
+    recForm.weekday = Number(el.dataset.val);
+    recForm.startDate = nextWeekday(recForm.weekday, recForm.id ? recForm.startDate : todayISO());
+    renderRecForm();
+  },
+  'rf-start': (el) => { $('#r-start').value = el.dataset.val; refreshRecPreview(); },
+  'rf-end': (el) => { syncRecForm(); recForm.endMode = el.dataset.val; renderRecForm(); },
+  'rf-acc': (el) => { recForm.accountId = pickAccount(el); },
   'rf-save': () => saveRec(),
   'rf-delete': () => deleteRec(),
 });
@@ -432,4 +574,16 @@ Object.assign(changes, {
     if (!recForm.id) recForm.startDate = nextDue(recForm.day);
     renderRecForm();
   },
+  'rf-start': (el) => {
+    syncRecForm();
+    const d = fromISO(el.value || todayISO());
+    if (FREQS[recForm.freq].unit === 'w') recForm.weekday = d.getDay();
+    else if (recForm.freq !== 'yearly') recForm.day = d.getDate();
+    renderRecForm();
+  },
+  'rf-refresh': () => refreshRecPreview(),
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.dataset?.input === 'rf-refresh' && recForm) refreshRecPreview();
 });
