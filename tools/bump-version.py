@@ -18,6 +18,7 @@ VERSIONED_FILES = [
     'smart.js',
     'goals.js',
     'subs.js',
+    'reports.js',
     'home.js',
     'start.js',
 ]

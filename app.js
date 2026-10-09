@@ -562,7 +562,6 @@ function viewReport() {
   const catTotal = ui.reportCat === 'income' ? t.inc : t.exp;
 
   return `
-    ${viewHead('Rapor')}
     ${periodBar()}
     <div class="stats">
       <div class="stat"><small>Gelir</small><b class="inc">${money(t.inc)}</b></div>
@@ -682,7 +681,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 27;
+const APP_VERSION = 29;
 
 function errorCard(e) {
   return `<div class="card empty-card">
