@@ -163,12 +163,12 @@ async function aiGenerate(prompt, json) {
   const order = good && AI_MODELS.includes(good) ? [good, ...AI_MODELS.filter((m) => m !== good)] : AI_MODELS;
   for (const name of order) {
     try {
-      const model = mod.getGenerativeModel(ai, {
-        model: name,
-        systemInstruction: AI_SYSTEM,
-        generationConfig: json ? { responseMimeType: 'application/json', temperature: 0.3 } : { temperature: 0.5 },
-      });
-      const res = await model.generateContent(prompt);
+      // Düşük düşünme seviyesi: aynı kalitede ~3 kat daha hızlı cevap. Desteklemeyen modelde ayarsız tekrar denenir.
+      const base = json ? { responseMimeType: 'application/json', temperature: 0.3 } : { temperature: 0.5 };
+      const run = (cfg) => mod.getGenerativeModel(ai, { model: name, systemInstruction: AI_SYSTEM, generationConfig: cfg }).generateContent(prompt);
+      let res;
+      try { res = await run({ ...base, thinkingConfig: { thinkingLevel: 'LOW' } }); }
+      catch (e) { if (/thinking/i.test(String(e?.message))) res = await run(base); else throw e; }
       aiState.unavailable = false;
       try { localStorage.setItem('butce.aiModel', name); } catch {}
       return res.response.text();
