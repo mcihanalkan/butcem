@@ -9,14 +9,14 @@
    ===================================================================== */
 
 const ACC_KINDS = {
-  credit: { label: 'Kredi kartı', icon: '💳' },
-  bank: { label: 'Banka hesabı / kartı', icon: '🏦' },
-  cash: { label: 'Nakit', icon: '💵' },
+  credit: { label: 'Kredi kartı', icon: 'credit-card' },
+  bank: { label: 'Banka hesabı / kartı', icon: 'landmark' },
+  cash: { label: 'Nakit', icon: 'wallet' },
 };
 const CARD_COLORS = ['#1f2937', '#4c1d95', '#991b1b', '#115e59', '#1e3a8a', '#9a3412', '#9d174d', '#166534', '#854d0e', '#475569'];
 
 const accById = (id) => db.accounts.find((a) => a.id === id);
-const accIcon = (a) => ACC_KINDS[a.kind]?.icon || '💳';
+const accIcon = (a, size = 18) => icon(ACC_KINDS[a.kind]?.icon || 'credit-card', size);
 const accLabel = (a) => `${a.name}${a.last4 ? ` •${a.last4}` : ''}`;
 // Hesap açıldıktan sonra girilen kayıtlar bakiyeye eklenir (öncekiler açılış tutarının içinde).
 const accCounts = (a, t) => (t.createdAt || 0) >= (a.createdAt || 0);
@@ -73,7 +73,7 @@ function cardAttention() {
 }
 
 function dueText(s) {
-  if (s.remaining <= 0) return s.stmtDebt > 0 ? 'Dönem borcu ödendi ✓' : 'Ödenecek dönem borcu yok';
+  if (s.remaining <= 0) return s.stmtDebt > 0 ? 'Dönem borcu ödendi' : 'Ödenecek dönem borcu yok';
   if (s.daysToDue < 0) return `Son ödeme ${-s.daysToDue} gün geçti!`;
   if (s.daysToDue === 0) return 'Son ödeme bugün!';
   return `Son ödemeye ${s.daysToDue} gün`;
@@ -85,15 +85,15 @@ function cardTile(s) {
   const a = s.a;
   const pct = Math.min(1, Math.max(0, s.usage)) * 100;
   return `<button class="ccard" style="--cc:${a.color || CARD_COLORS[0]}" data-action="acc-open" data-id="${a.id}">
-    <span class="cc-top"><span>${esc(a.bank || 'Kredi kartı')}</span><span>${a.last4 ? `•••• ${esc(a.last4)}` : '💳'}</span></span>
+    <span class="cc-top"><span>${esc(a.bank || 'Kredi kartı')}</span><span>${a.last4 ? `•••• ${esc(a.last4)}` : icon('credit-card', 18)}</span></span>
     <span class="cc-name">${esc(a.name)}</span>
     <span class="cc-debt"><small>Borç</small><b>${money(s.debt)}</b></span>
     <span class="cc-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
     <span class="cc-foot"><span>Kullanılabilir ${moneyRound(s.available)}</span><span>Limit ${moneyRound(s.limit)}</span></span>
   </button>
   <div class="cc-due ${s.level}">
-    <span>📅 ${shortDay(s.due)} · ${esc(dueText(s))}</span>
-    ${s.remaining > 0 ? `<span>Dönem <b>${moneyRound(s.remaining)}</b> · ${s.minDue ? `Asgari <b>${moneyRound(s.minDue)}</b>` : 'Asgari ödendi ✓'}</span>` : ''}
+    <span>Son ödeme ${shortDay(s.due)} · ${esc(dueText(s))}</span>
+    ${s.remaining > 0 ? `<span>Dönem <b>${moneyRound(s.remaining)}</b> · ${s.minDue ? `Asgari <b>${moneyRound(s.minDue)}</b>` : 'Asgari ödendi'}</span>` : ''}
   </div>`;
 }
 
@@ -103,13 +103,13 @@ function viewCards() {
   if (!db.accounts.length) {
     return `${viewHead('Kartlar')}
       <div class="card empty-card">
-        <span class="big">💳</span>
+        <span class="empty-ico">${icon('credit-card', 26)}</span>
         <b>Kartlarını ve hesaplarını ekle</b>
         <p>Kredi kartı borcunu, limitini, son ödeme gününü takip et; harcamayı hangi kartla yaptığını seç.</p>
         <div class="btn-stack">
-          <button class="btn primary" data-action="acc-new" data-kind="credit">💳 Kredi kartı ekle</button>
-          <button class="btn" data-action="acc-new" data-kind="bank">🏦 Banka hesabı / kartı ekle</button>
-          <button class="btn" data-action="acc-new" data-kind="cash">💵 Nakit cüzdan ekle</button>
+          <button class="btn primary" data-action="acc-new" data-kind="credit">Kredi kartı ekle</button>
+          <button class="btn" data-action="acc-new" data-kind="bank">Banka hesabı / kartı ekle</button>
+          <button class="btn" data-action="acc-new" data-kind="cash">Nakit cüzdan ekle</button>
         </div>
       </div>`;
   }
@@ -118,18 +118,18 @@ function viewCards() {
   const totalAvail = cs.reduce((x, s) => x + Math.max(0, s.available), 0);
   const cashSum = others.reduce((x, a) => x + accBalance(a), 0);
   return `${viewHead('Kartlar', `<button class="btn small" data-action="acc-new">+ Ekle</button>`)}
-    <div class="sum-strip">
-      <div><small>Kart borcu</small><b class="exp">${moneyRound(totalDebt)}</b></div>
-      <div><small>Kullanılabilir limit</small><b>${moneyRound(totalAvail)}</b></div>
-      <div><small>Hesaplardaki para</small><b class="inc">${moneyRound(cashSum)}</b></div>
+    <div class="card sum-list">
+      <div><span>Toplam kart borcu</span><b class="exp">${money(totalDebt)}</b></div>
+      <div><span>Kullanılabilir limit</span><b>${money(totalAvail)}</b></div>
+      <div><span>Hesaplardaki para</span><b class="inc">${money(cashSum)}</b></div>
     </div>
     ${cs.length ? `<h2 class="sec">Kredi kartları</h2><div class="ccards">${cs.map(cardTile).join('')}</div>` : ''}
     ${others.length ? `<h2 class="sec">Hesaplar</h2><div class="list">${others.map((a) => `<button class="tx" data-action="acc-open" data-id="${a.id}">
-        <span class="ico" style="--c:${a.color || '#64748b'}">${accIcon(a)}</span>
+        <span class="ico" style="--c:${col(a.color)}">${accIcon(a)}</span>
         <span class="tx-main"><b>${esc(accLabel(a))}</b><small>${esc(a.bank || ACC_KINDS[a.kind].label)}</small></span>
         <span class="amt ${accBalance(a) >= 0 ? '' : 'exp'}">${money(accBalance(a))}</span>
       </button>`).join('')}</div>` : ''}
-    <button class="btn block" style="margin-top:14px" data-action="xfer-new">↔️ Kart ödemesi / para transferi</button>
+    <button class="btn block" style="margin-top:14px" data-action="xfer-new">${icon('arrow-left-right', 18)} Kart ödemesi / para transferi</button>
   `;
 }
 
@@ -143,7 +143,7 @@ function openAccount(id) {
   const credit = a.kind === 'credit';
   const s = credit ? cardStatus(a) : null;
   openSheet(`
-    <div class="sheet-head"><h2>${accIcon(a)} ${esc(accLabel(a))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${esc(accLabel(a))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     ${credit ? `
       <div class="kpis">
         <div><small>Toplam borç</small><b class="exp">${money(s.debt)}</b></div>
@@ -188,8 +188,8 @@ function renderAccForm() {
   const credit = f.kind === 'credit';
   const days = (sel) => Array.from({ length: 31 }, (_, i) => i + 1).map((n) => `<option value="${n}" ${sel === n ? 'selected' : ''}>${n}</option>`).join('');
   openSheet(`
-    <div class="sheet-head"><h2>${editing ? 'Düzenle' : 'Yeni kart / hesap'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-    ${editing ? '' : `<div class="seg field">${Object.entries(ACC_KINDS).map(([k, v]) => `<button data-action="af-kind" data-val="${k}" class="${f.kind === k ? 'on' : ''}">${v.icon} ${k === 'bank' ? 'Banka' : v.label}</button>`).join('')}</div>`}
+    <div class="sheet-head"><h2>${editing ? 'Düzenle' : 'Yeni kart / hesap'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
+    ${editing ? '' : `<div class="seg field">${Object.entries(ACC_KINDS).map(([k, v]) => `<button data-action="af-kind" data-val="${k}" class="${f.kind === k ? 'on' : ''}">${k === 'bank' ? 'Banka' : v.label}</button>`).join('')}</div>`}
     <div class="row field">
       <div><label class="lbl">Ad</label><input id="a-name" value="${esc(f.name)}" maxlength="30" placeholder="${credit ? 'ör. Bonus, Axess' : f.kind === 'cash' ? 'Cüzdan' : 'ör. Maaş hesabı'}"></div>
       ${f.kind === 'cash' ? '' : `<div><label class="lbl">Banka</label><input id="a-bank" value="${esc(f.bank)}" maxlength="30" placeholder="ör. Garanti"></div>`}
@@ -247,7 +247,7 @@ function saveAcc() {
   save();
   closeSheet();
   render();
-  toast('Kaydedildi ✓');
+  toast('Kaydedildi');
 }
 
 function deleteAcc() {
@@ -271,7 +271,7 @@ const FEE_CAT_ID = defCatId('expense', 'Banka masrafı');
 
 function ensureFeeCategory() {
   if (db.categories.some((c) => c.id === FEE_CAT_ID)) return;
-  db.categories.push({ id: FEE_CAT_ID, type: 'expense', name: 'Banka masrafı', icon: '🏧', color: '#64748b', createdAt: 0, updatedAt: 0 });
+  db.categories.push({ id: FEE_CAT_ID, type: 'expense', name: 'Banka masrafı', icon: 'lc:banknote', color: '#5F6B7A', createdAt: 0, updatedAt: 0 });
   touch('cat', FEE_CAT_ID);
 }
 
@@ -359,13 +359,13 @@ function xferAccCard(role) {
   const a = accById(id);
   const empty = role === 'to' && !a;
   return `<button class="xacc ${xfer.picking === role ? 'open' : ''}" data-action="x-pick" data-role="${role}">
-    <span class="xacc-ico" style="--c:${a?.color || '#64748b'}">${a ? accIcon(a) : role === 'from' ? '🌐' : '＋'}</span>
+    <span class="xacc-ico" style="--c:${col(a?.color)}">${a ? accIcon(a, 22) : icon(role === 'from' ? 'arrow-down-left' : 'plus', 22)}</span>
     <span class="xacc-main">
       <small>${role === 'from' ? 'Gönderen' : 'Alıcı'}</small>
       <b>${empty ? 'Hesap seç' : a ? esc(accLabel(a)) : 'Hesap dışı'}</b>
       <span>${empty ? 'Paranın gideceği yer' : accState(a)}</span>
     </span>
-    <span class="xacc-chev">▾</span>
+    <span class="xacc-chev">${icon('chevron-down', 18)}</span>
   </button>`;
 }
 
@@ -376,7 +376,7 @@ function xferPickList(role) {
   return `<div class="xpick">
     ${db.accounts.filter((a) => a.id !== other).map((a) => `<button class="${cur === a.id ? 'on' : ''}" data-action="x-choose" data-role="${role}" data-id="${a.id}">
       <span>${accIcon(a)}</span><b>${esc(a.name)}</b><small>${accState(a)}</small></button>`).join('')}
-    ${role === 'from' ? `<button class="${!cur ? 'on' : ''}" data-action="x-choose" data-role="from" data-id=""><span>🌐</span><b>Hesap dışı</b><small>Başka bir yerden</small></button>` : ''}
+    ${role === 'from' ? `<button class="${!cur ? 'on' : ''}" data-action="x-choose" data-role="from" data-id=""><span>${icon('arrow-down-left', 18)}</span><b>Hesap dışı</b><small>Başka bir yerden</small></button>` : ''}
   </div>`;
 }
 
@@ -386,12 +386,12 @@ function renderTransfer() {
   const s = to?.kind === 'credit' ? cardStatus(to) : null;
   const feeOpen = f.showFee || !!f.feeText.trim();
   openSheet(`
-    <div class="sheet-head"><h2>${s ? 'Kart ödemesi' : 'Para gönder'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${s ? 'Kart ödemesi' : 'Para gönder'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
 
     <div class="xpair">
       ${xferAccCard('from')}
       ${xferPickList('from')}
-      <button class="xswap" data-action="x-swap" aria-label="Yer değiştir" ${f.fromId && f.toId ? '' : 'disabled'}>⇅</button>
+      <button class="xswap" data-action="x-swap" aria-label="Yer değiştir" ${f.fromId && f.toId ? '' : 'disabled'}>${icon('arrow-up-down', 18)}</button>
       ${xferAccCard('to')}
       ${xferPickList('to')}
     </div>
@@ -472,7 +472,7 @@ function saveTransfer() {
   closeSheet();
   render();
   const to = accById(f.toId);
-  toast(`${to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer'} kaydedildi: ${moneyRound(c.received)} geçti${c.fee ? `, ${moneyRound(c.fee)} komisyon` : ''} ✓`);
+  toast(`${to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer'} kaydedildi: ${moneyRound(c.received)} geçti${c.fee ? `, ${moneyRound(c.fee)} komisyon` : ''}`);
 }
 
 /* ----------------- işlem formunda kart/hesap seçimi ----------------- */

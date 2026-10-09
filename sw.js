@@ -1,19 +1,20 @@
 // Uygulama dosyalarını önbelleğe alır: internet yokken de açılır.
 // Kendi dosyalarımız: önce ağdan dener (güncel sürüm gelsin), olmazsa önbellekten verir.
 // Firebase kütüphaneleri (gstatic, sürüm numaralı): önbellekte varsa oradan verir.
-const CACHE = 'butce-v9';
+const CACHE = 'butce-v11';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=9',
-  './app.js?v=9',
-  './budget.js?v=9',
-  './recurring.js?v=9',
-  './accounts.js?v=9',
-  './ai.js?v=9',
-  './home.js?v=9',
-  './start.js?v=9',
-  './firebase-config.js?v=9',
+  './styles.css?v=11',
+  './icons.js?v=11',
+  './app.js?v=11',
+  './budget.js?v=11',
+  './recurring.js?v=11',
+  './accounts.js?v=11',
+  './ai.js?v=11',
+  './home.js?v=11',
+  './start.js?v=11',
+  './firebase-config.js?v=11',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -38,7 +39,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  if (url.origin === 'https://www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+  // Firebase kütüphaneleri ve yazı tipleri (sürüm/sabit adresli): önbellekte varsa oradan
+  const isFont = url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com';
+  if (isFont || (url.origin === 'https://www.gstatic.com' && url.pathname.startsWith('/firebasejs/'))) {
     e.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         const copy = res.clone();

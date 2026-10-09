@@ -159,7 +159,7 @@ function occRow(it) {
   const amount = it.state === 'done' ? it.tx.amount : it.rec.amount;
   return `<div class="occ ${it.state}">
     <button class="occ-tap" data-action="rec-occ" data-id="${it.rec.id}" data-due="${it.due}">
-      <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
+      <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
       <span class="occ-main"><b>${esc(recName(it.rec))}</b><small>${shortDay(it.due)} · <span class="st">${esc(stateText(it))}</span></small></span>
       ${pending ? '' : `<span class="amt ${it.state === 'done' ? (inc ? 'inc' : 'exp') : 'muted'}">${inc ? '+' : '−'}${money(amount)}</span>`}
     </button>
@@ -172,7 +172,7 @@ function recDefRow(r, dups) {
   const next = r.paused ? null : nextOccurrence(r);
   const sub = [freqText(r), r.paused ? 'duraklatıldı' : next ? `sıradaki ${fullDay(next)}` : 'bitti', endText(r)].join(' · ');
   return `<button class="tx" data-action="rec-edit" data-id="${r.id}">
-    <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
+    <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
     <span class="tx-main"><b>${esc(recName(r))}${dups.has(dupKey(r)) ? ' <span class="lchip warn">2 kez eklenmiş</span>' : ''}</b><small>${esc(sub)}</small></span>
     <span class="amt ${r.type === 'income' ? 'inc' : 'exp'}">${r.type === 'income' ? '+' : '−'}${money(r.amount)}</span>
   </button>`;
@@ -200,12 +200,12 @@ function viewRecurring() {
   if (!db.recurring.length) {
     return `${nav}
       <div class="card empty-card">
-        <span class="big">📅</span>
+        <span class="empty-ico">${icon('repeat', 26)}</span>
         <b>Düzenli gelir ve giderler</b>
         <p>Maaş, kira, fatura, abonelik, taksit… Günü gelince "geldi mi / ödendi mi?" diye sorayım.</p>
       </div>
       <div class="card"><h3>Hızlı ekle</h3>
-        <div class="tpl-grid">${REC_TEMPLATES.map((t, i) => `<button class="cat-tile" data-action="rec-tpl" data-i="${i}"><span>${t.icon}</span><em>${esc(t.name)}</em></button>`).join('')}</div>
+        <div class="tpl-grid">${REC_TEMPLATES.map((t, i) => `<button class="cat-tile" data-action="rec-tpl" data-i="${i}"><span>${glyph(t.icon, 22)}</span><em>${esc(t.name)}</em></button>`).join('')}</div>
         <button class="btn block" style="margin-top:12px" data-action="rec-new">+ Başka bir şey ekle</button>
       </div>`;
   }
@@ -234,7 +234,7 @@ function viewRecurring() {
     <h2 class="sec">Bu ay</h2>
     ${rest.length ? `<div class="list occ-list">${rest.map(occRow).join('')}</div>` : '<p class="muted small" style="margin:0 4px">Bu ay için başka gelir/gider yok.</p>'}
     <div class="sec-head"><h2 class="sec">Düzenli kayıtların (${db.recurring.length})</h2><button class="link" data-action="rec-new">+ Ekle</button></div>
-    ${dups.size ? `<p class="dup-note">⚠️ Bazı kayıtlar iki kez eklenmiş görünüyor. Fazla olana dokunup silebilirsin.</p>` : ''}
+    ${dups.size ? `<p class="dup-note">Bazı kayıtlar iki kez eklenmiş görünüyor. Fazla olana dokunup silebilirsin.</p>` : ''}
     <div class="list">${defs.map((r) => recDefRow(r, dups)).join('')}</div>
   `;
 }
@@ -254,26 +254,26 @@ function openConfirm(recId, due) {
 
   if (st.state === 'done') {
     openSheet(`
-      <div class="sheet-head"><h2>${esc(recName(rec))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-      <div class="preview"><span class="ico" style="--c:${c.color}">${esc(c.icon)}</span><span><b>✅ ${inc ? 'Geldi' : 'Ödendi'}: ${money(st.tx.amount)}</b><small class="muted" style="display:block">${longDate(st.tx.date)} · beklenen ${shortDay(due)}, ${money(rec.amount)}</small></span></div>
+      <div class="sheet-head"><h2>${esc(recName(rec))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
+      <div class="preview"><span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span><span><b>${inc ? 'Geldi' : 'Ödendi'}: ${money(st.tx.amount)}</b><small class="muted" style="display:block">${longDate(st.tx.date)} · beklenen ${shortDay(due)}, ${money(rec.amount)}</small></span></div>
       <div class="btn-stack">
-        <button class="btn" data-action="edit-tx" data-id="${st.tx.id}">✏️ Kaydı düzenle</button>
-        <button class="btn danger" data-action="rec-undo" data-tx="${st.tx.id}">↩️ Onayı geri al (kaydı sil)</button>
-        <button class="btn" data-action="rec-edit" data-id="${rec.id}">⚙️ Düzenli kaydın ayarları</button>
+        <button class="btn" data-action="edit-tx" data-id="${st.tx.id}">Kaydı düzenle</button>
+        <button class="btn danger" data-action="rec-undo" data-tx="${st.tx.id}">Onayı geri al</button>
+        <button class="btn" data-action="rec-edit" data-id="${rec.id}">Düzenli kaydın ayarları</button>
       </div>`);
     return;
   }
   if (st.state === 'skipped') {
     openSheet(`
-      <div class="sheet-head"><h2>${esc(recName(rec))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+      <div class="sheet-head"><h2>${esc(recName(rec))}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
       <p>${fullDay(due)} tarihli ${inc ? 'gelir' : 'ödeme'} <b>atlandı</b> olarak işaretli.</p>
       <div class="btn-stack"><button class="btn primary" data-action="rec-unskip">Atlamayı geri al</button></div>`);
     return;
   }
   const defDate = due <= today ? due : today;
   openSheet(`
-    <div class="sheet-head"><h2>${esc(recName(rec))} ${inc ? 'geldi mi?' : 'ödendi mi?'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
-    <div class="preview"><span class="ico" style="--c:${c.color}">${esc(c.icon)}</span><span><b>Beklenen: ${money(rec.amount)}</b><small class="muted" style="display:block">${longDate(due)}${st.state === 'late' ? ` · <span class="exp">${st.days} gün gecikti</span>` : ''}</small></span></div>
+    <div class="sheet-head"><h2>${esc(recName(rec))} ${inc ? 'geldi mi?' : 'ödendi mi?'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
+    <div class="preview"><span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span><span><b>Beklenen: ${money(rec.amount)}</b><small class="muted" style="display:block">${longDate(due)}${st.state === 'late' ? ` · <span class="exp">${st.days} gün gecikti</span>` : ''}</small></span></div>
     <div class="field"><label>${inc ? 'Gelen' : 'Ödenen'} tutar${rec.variable ? ' (bu seferki gerçek tutarı yaz)' : ''}</label>
       <div class="amount-field"><input id="rc-amount" inputmode="decimal" autocomplete="off" value="${amountToInput(rec.amount)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
@@ -284,8 +284,8 @@ function openConfirm(recId, due) {
     </div>
     <label class="check"><input type="checkbox" id="rc-update"><span><b>Sonrakiler için de bu tutarı kullan</b><small>Maaşın arttıysa ya da ücret değiştiyse işaretle.</small></span></label>
     <div class="actions">
-      <button class="btn" data-action="rec-skip">⏭️ Bu sefer atla</button>
-      <button class="btn primary" data-action="rec-do-confirm">${inc ? '✓ Geldi' : '✓ Ödendi'}</button>
+      <button class="btn" data-action="rec-skip">Bu sefer atla</button>
+      <button class="btn primary" data-action="rec-do-confirm">${inc ? 'Geldi' : 'Ödendi'}</button>
     </div>`);
   if (rec.variable) setTimeout(() => { const a = $('#rc-amount'); a?.focus(); a?.select(); }, 60);
 }
@@ -311,7 +311,7 @@ function confirmOccurrence() {
   render();
   const warnings = tx.type === 'expense' ? budgetWarningsAfterSave(before, tx) : [];
   if (warnings.length) alertToast(warnings);
-  else toast(`${recName(rec)}: ${rec.type === 'income' ? 'geldi' : 'ödendi'} olarak kaydedildi ✓`);
+  else toast(`${recName(rec)}: ${rec.type === 'income' ? 'geldi' : 'ödendi'} olarak kaydedildi`);
 }
 
 function setSkip(skip) {
@@ -408,19 +408,19 @@ function renderRecForm() {
   const editing = !!f.id;
   const thisDue = dueIn(fromISO(todayISO()).getFullYear(), fromISO(todayISO()).getMonth(), f.day);
   openSheet(`
-    <div class="sheet-head"><h2>${editing ? 'Düzenli kaydı düzenle' : 'Yeni düzenli kayıt'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${editing ? 'Düzenli kaydı düzenle' : 'Yeni düzenli kayıt'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     <div class="seg type field">
       <button data-action="rf-type" data-val="expense" class="${f.type === 'expense' ? 'on' : ''}">− Gider</button>
       <button data-action="rf-type" data-val="income" class="${f.type === 'income' ? 'on' : ''}">+ Gelir</button>
     </div>
-    ${editing ? '' : `<div class="tpl-chips">${REC_TEMPLATES.filter((t) => t.type === f.type).map((t) => `<button class="chip" data-action="rf-tpl" data-i="${REC_TEMPLATES.indexOf(t)}">${t.icon} ${esc(t.name)}</button>`).join('')}</div>`}
+    ${editing ? '' : `<div class="tpl-chips">${REC_TEMPLATES.filter((t) => t.type === f.type).map((t) => `<button class="chip" data-action="rf-tpl" data-i="${REC_TEMPLATES.indexOf(t)}">${esc(t.name)}</button>`).join('')}</div>`}
     <div class="field"><label>Ad</label><input id="r-name" value="${esc(f.name)}" maxlength="40" placeholder="${f.type === 'income' ? 'ör. Maaş, Burs, Kira geliri' : 'ör. Kira, Netflix, Elektrik'}"></div>
     <div class="field"><label>${f.variable ? 'Tahmini tutar' : 'Tutar'}</label>
       <div class="amount-field"><input id="r-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.amountText)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
     <label class="check"><input type="checkbox" id="r-var" ${f.variable ? 'checked' : ''}><span><b>Tutar her seferinde değişebilir</b><small>Fatura gibi. Onaylarken gerçek tutarı girersin.</small></span></label>
     <div class="field"><label>Kategori</label>
-      <div class="cat-grid">${cats.map((c) => `<button class="cat-tile ${f.categoryId === c.id ? 'on' : ''}" style="--c:${c.color}" data-action="rf-cat" data-id="${c.id}"><span>${esc(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}</div>
+      <div class="cat-grid">${cats.map((c) => `<button class="cat-tile ${f.categoryId === c.id ? 'on' : ''}" style="--c:${col(c.color)}" data-action="rf-cat" data-id="${c.id}"><span>${glyph(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}</div>
     </div>
 
     <div class="field"><label>Ne sıklıkla?</label>
@@ -484,7 +484,7 @@ function saveRec() {
   closeSheet();
   render();
   const next = nextOccurrence(data);
-  toast(`Kaydedildi ✓${next ? ` Sıradaki: ${fullDay(next)}` : ''}`);
+  toast(`Kaydedildi${next ? ` Sıradaki: ${fullDay(next)}` : ''}`);
 }
 
 function deleteRec() {

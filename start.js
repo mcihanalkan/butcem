@@ -1,6 +1,9 @@
 'use strict';
 // Tüm dosyalar yüklendikten sonra uygulamayı başlatır.
 
+// Menü ve buton ikonlarını yerleştir
+$$('[data-i]').forEach((el) => { el.innerHTML = icon(el.dataset.i, el.closest('.fab') ? 26 : 22); });
+
 if (SUB_PAGES.includes(ui.view)) ui.view = 'home';
 history.replaceState({ view: ui.view }, '');
 render();

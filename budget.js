@@ -10,15 +10,15 @@ ui.budgetAnchor = todayISO();
 
 const ALERT_LEVELS = [50, 70, 80, 90];
 const LEVEL_META = {
-  over: { icon: '🚨', label: 'Aşıldı', order: 0 },
-  warn: { icon: '⚠️', label: 'Sınıra yakın', order: 1 },
-  pace: { icon: '⏱️', label: 'Hızlı gidiyor', order: 2 },
-  ok: { icon: '✅', label: 'Yolunda', order: 3 },
+  over: { label: 'Aşıldı', order: 0 },
+  warn: { label: 'Sınıra yakın', order: 1 },
+  pace: { label: 'Hızlı gidiyor', order: 2 },
+  ok: { label: 'Yolunda', order: 3 },
 };
 
 const budgetPeriod = (anchor = ui.budgetAnchor) => getPeriod({ mode: 'month', anchor });
 const budgetName = (b) => (b.scope === 'total' ? 'Toplam harcama' : (catMap()[b.categoryId] || MISSING_CAT).name);
-const budgetIcon = (b) => (b.scope === 'total' ? '🎯' : (catMap()[b.categoryId] || MISSING_CAT).icon);
+const budgetIcon = (b) => (b.scope === 'total' ? 'lc:target' : (catMap()[b.categoryId] || MISSING_CAT).icon);
 const budgetColor = (b) => (b.scope === 'total' ? 'var(--accent)' : (catMap()[b.categoryId] || MISSING_CAT).color);
 const shortDay = (iso) => { const d = fromISO(iso); return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`; };
 const pctText = (p) => `%${Math.round(p * 100)}`;
@@ -159,15 +159,15 @@ function budgetWarningsAfterSave(before, data) {
     const name = budgetName(b);
     const at = (b.alertAt || 80) / 100;
     if (s.level === 'over') {
-      lines.push({ level: 'over', text: prevPct < 1 ? `🚨 ${name} limitini aştın! ${money(s.spent)} / ${money(s.limit)}` : `🚨 ${name} limiti zaten aşılmış: toplam aşım ${money(-s.remaining)}` });
+      lines.push({ level: 'over', text: prevPct < 1 ? `${name} limitini aştın! ${money(s.spent)} / ${money(s.limit)}` : `${name} limiti zaten aşılmış: toplam aşım ${money(-s.remaining)}` });
     } else if (s.level === 'warn') {
-      lines.push({ level: 'warn', text: prevPct < at ? `⚠️ ${name} limitinde ${pctText(s.pct)} seviyesine ulaştın. Kalan ${money(s.remaining)}${s.isCurrent ? `, günde ${money(s.daily)}` : ''}` : `⚠️ ${name}: kalan ${money(s.remaining)} (${pctText(s.pct)} kullanıldı)` });
+      lines.push({ level: 'warn', text: prevPct < at ? `${name} limitinde ${pctText(s.pct)} seviyesine ulaştın. Kalan ${money(s.remaining)}${s.isCurrent ? `, günde ${money(s.daily)}` : ''}` : `${name}: kalan ${money(s.remaining)} (${pctText(s.pct)} kullanıldı)` });
     } else if (s.level === 'pace') {
-      lines.push({ level: 'pace', text: `⏱️ ${name}: bu hızla ay sonunda limiti ${money(s.projected - s.limit)} aşacaksın` });
+      lines.push({ level: 'pace', text: `${name}: bu hızla ay sonunda limiti ${money(s.projected - s.limit)} aşacaksın` });
     }
   }
   const factor = unusualFactor(data);
-  if (factor) lines.push({ level: 'info', text: `🔎 Bu ${(catMap()[data.categoryId] || MISSING_CAT).name} harcaması normalin yaklaşık ${factor} katı.` });
+  if (factor) lines.push({ level: 'info', text: `Bu ${(catMap()[data.categoryId] || MISSING_CAT).name} harcaması normalin yaklaşık ${factor} katı.` });
   return lines.sort((a, b) => ['over', 'warn', 'pace', 'info'].indexOf(a.level) - ['over', 'warn', 'pace', 'info'].indexOf(b.level));
 }
 
@@ -192,18 +192,18 @@ function budgetBar(s) {
 }
 
 function levelChip(level) {
-  return `<span class="lchip ${level}">${LEVEL_META[level].icon} ${LEVEL_META[level].label}</span>`;
+  return `<span class="lchip ${level}"><i></i>${LEVEL_META[level].label}</span>`;
 }
 
 function budgetRow(s) {
   const b = s.b;
   const right = s.level === 'over' ? `<b class="exp">${moneyRound(-s.remaining)} aşıldı</b>` : `<span class="muted">${moneyRound(s.remaining)} kaldı</span>`;
   return `<button class="brow" data-action="bud-edit" data-id="${b.id}">
-    <span class="ico" style="--c:${budgetColor(b)}">${esc(budgetIcon(b))}</span>
+    <span class="ico" style="--c:${col(budgetColor(b))}">${glyph(budgetIcon(b))}</span>
     <span class="brow-main">
       <span class="between"><b>${esc(budgetName(b))}</b><span class="brow-nums"><b>${moneyRound(s.spent)}</b> / ${moneyRound(s.limit)}</span></span>
       ${budgetBar(s)}
-      <span class="between brow-nums"><span>${s.level === 'pace' ? '⏱️ Hızlı gidiyor' : s.level === 'warn' ? '⚠️ Sınıra yakın' : s.carry ? `+${moneyRound(s.carry)} devreden` : ''}</span>${right}</span>
+      <span class="between brow-nums"><span>${s.level === 'pace' ? 'Hızlı gidiyor' : s.level === 'warn' ? 'Sınıra yakın' : s.carry ? `+${moneyRound(s.carry)} devreden` : ''}</span>${right}</span>
     </span>
   </button>`;
 }
@@ -232,9 +232,9 @@ function overallStatus(per) {
 // Ay seçici: ‹ 9 Eki – 8 Kas ›  (prefix-shift / prefix-today eylemleri)
 function monthNav(per, prefix) {
   return `<div class="month-nav">
-    <button class="arrow" data-action="${prefix}-shift" data-dir="-1" aria-label="Önceki ay">‹</button>
+    <button class="arrow" data-action="${prefix}-shift" data-dir="-1" aria-label="Önceki ay">${icon('chevron-left', 20)}</button>
     <button class="label" data-action="${prefix}-today" title="Bu aya dön">${esc(per.label)}</button>
-    <button class="arrow" data-action="${prefix}-shift" data-dir="1" aria-label="Sonraki ay">›</button>
+    <button class="arrow" data-action="${prefix}-shift" data-dir="1" aria-label="Sonraki ay">${icon('chevron-right', 20)}</button>
   </div>`;
 }
 
@@ -267,11 +267,11 @@ function viewBudget() {
     const plan = autoPlan();
     return `${nav}
       <div class="card empty-card">
-        <span class="big">🎯</span>
+        <span class="empty-ico">${icon('target', 26)}</span>
         <b>Henüz limit yok</b>
         <p>Kategorilere aylık limit koy; yaklaşınca, aşınca ve hızlı harcadığında uyarayım.</p>
         <div class="btn-stack">
-          ${plan.length ? `<button class="btn primary" data-action="bud-auto">✨ Geçmişime göre öner</button>` : ''}
+          ${plan.length ? `<button class="btn primary" data-action="bud-auto">Geçmişime göre öner</button>` : ''}
           <button class="btn ${plan.length ? '' : 'primary'}" data-action="bud-new">+ Limit ekle</button>
         </div>
       </div>
@@ -305,7 +305,7 @@ function viewBudget() {
     <div class="card">
       <div class="between" style="margin-bottom:2px"><h3 style="margin:0">Kategori limitleri</h3><button class="link" data-action="bud-new">+ Ekle</button></div>
       ${statuses.length ? statuses.map(budgetRow).join('') : '<p class="muted small">Henüz kategori limiti yok.</p>'}
-      ${free.length ? `<button class="free-line" data-action="bud-free">💡 ${free.length} kategoride limit yok · ${moneyRound(freeSum)} harcandı <span>›</span></button>` : ''}
+      ${free.length ? `<button class="free-line" data-action="bud-free">${free.length} kategoride limit yok · ${moneyRound(freeSum)} harcandı <span>›</span></button>` : ''}
     </div>
     ${aiCard()}`;
 }
@@ -316,17 +316,17 @@ function budgetAlertList(per, statuses, free) {
   const total = db.budgets.find((b) => b.scope === 'total');
   if (total) {
     const ts = budgetStatus(total, per);
-    if (ts.level !== 'ok') li(ts.level, `${LEVEL_META[ts.level].icon} <b>Toplam:</b> ${esc(statusMessage(ts))}`);
+    if (ts.level !== 'ok') li(ts.level, `<b>Toplam:</b> ${esc(statusMessage(ts))}`);
   }
-  for (const st of statuses) if (st.level !== 'ok') li(st.level, `${LEVEL_META[st.level].icon} <b>${esc(budgetName(st.b))}:</b> ${esc(statusMessage(st))}`);
+  for (const st of statuses) if (st.level !== 'ok') li(st.level, `<b>${esc(budgetName(st.b))}:</b> ${esc(statusMessage(st))}`);
   for (const t of txIn(per).filter((x) => x.type === 'expense' && unusualFactor(x)).slice(0, 2)) {
-    li('info', `🔎 ${shortDay(t.date)} ${esc((catMap()[t.categoryId] || MISSING_CAT).name)} harcaması (${moneyRound(t.amount)}) normalin ~${unusualFactor(t)} katı.`);
+    li('info', `${shortDay(t.date)} ${esc((catMap()[t.categoryId] || MISSING_CAT).name)} harcaması (${moneyRound(t.amount)}) normalin ~${unusualFactor(t)} katı.`);
   }
   if (total) {
     const catSum = db.budgets.filter((b) => b.scope === 'cat').reduce((a, b) => a + b.amount, 0);
-    if (catSum > total.amount) li('pace', `🧮 Kategori limitlerinin toplamı (${moneyRound(catSum)}) toplam bütçeyi aşıyor.`);
+    if (catSum > total.amount) li('pace', `Kategori limitlerinin toplamı (${moneyRound(catSum)}) toplam bütçeyi aşıyor.`);
     const inc = totals(txIn(per)).inc;
-    if (inc > 0 && total.amount > inc) li('pace', `💸 Toplam bütçe bu ayki gelirinden (${moneyRound(inc)}) yüksek.`);
+    if (inc > 0 && total.amount > inc) li('pace', `Toplam bütçe bu ayki gelirinden (${moneyRound(inc)}) yüksek.`);
   }
   return items;
 }
@@ -334,11 +334,11 @@ function budgetAlertList(per, statuses, free) {
 function openFreeList() {
   const free = unbudgeted(budgetPeriod());
   openSheet(`
-    <div class="sheet-head"><h2>Limitsiz harcamalar</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>Limitsiz harcamalar</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     <p class="muted small" style="margin-top:0">Bu ay harcama yaptığın ama limit koymadığın kategoriler.</p>
     ${free.map((r) => {
       const sug = suggestFor('cat', r.id);
-      return `<div class="free-row"><span class="ico" style="--c:${r.cat.color}">${esc(r.cat.icon)}</span>
+      return `<div class="free-row"><span class="ico" style="--c:${col(r.cat.color)}">${glyph(r.cat.icon)}</span>
         <span style="flex:1;min-width:0"><b>${esc(r.cat.name)}</b><small class="muted" style="display:block">${moneyRound(r.sum)} harcandı${sug ? ` · öneri ${moneyRound(sug.amount)}` : ''}</small></span>
         <button class="btn small" data-action="bud-quick" data-id="${r.id}">Limit koy</button></div>`;
     }).join('')}
@@ -374,19 +374,19 @@ function renderBudgetForm() {
   const nowSpent = f.scope === 'total' || f.categoryId ? spentIn(per, { scope: f.scope, categoryId: f.categoryId }) : 0;
   const editing = !!f.id;
   openSheet(`
-    <div class="sheet-head"><h2>${editing ? 'Limiti düzenle' : 'Yeni limit'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${editing ? 'Limiti düzenle' : 'Yeni limit'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     ${editing ? '' : `<div class="seg field">
       <button data-action="bud-scope" data-val="cat" class="${f.scope === 'cat' ? 'on' : ''}">Kategori limiti</button>
       <button data-action="bud-scope" data-val="total" class="${f.scope === 'total' ? 'on' : ''}" ${hasTotal ? 'disabled title="Zaten bir toplam limit var"' : ''}>Toplam aylık limit</button>
     </div>`}
     ${f.scope === 'cat' ? `<div class="field"><label>Kategori</label>
-      ${editing ? `<div class="preview" style="margin:0"><span class="ico" style="--c:${budgetColor(f)}">${esc(budgetIcon(f))}</span><b>${esc(budgetName(f))}</b></div>`
-        : `<div class="cat-grid">${cats.map((c) => `<button class="cat-tile ${f.categoryId === c.id ? 'on' : ''}" style="--c:${c.color}" data-action="bud-cat" data-id="${c.id}"><span>${esc(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}</div>`}
+      ${editing ? `<div class="preview" style="margin:0"><span class="ico" style="--c:${col(budgetColor(f))}">${glyph(budgetIcon(f))}</span><b>${esc(budgetName(f))}</b></div>`
+        : `<div class="cat-grid">${cats.map((c) => `<button class="cat-tile ${f.categoryId === c.id ? 'on' : ''}" style="--c:${col(c.color)}" data-action="bud-cat" data-id="${c.id}"><span>${glyph(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}</div>`}
     </div>` : `<p class="muted" style="font-size:13px;margin-top:0">Ay içindeki tüm giderlerin toplamı için üst sınır.</p>`}
     <div class="field"><label>Aylık limit</label>
       <div class="amount-field"><input id="b-amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${esc(f.amountText)}"><span>${esc(db.settings.currency)}</span></div>
       <div class="chips" style="flex-wrap:wrap">
-        ${sug ? `<button class="chip" data-action="bud-suggest" data-val="${sug.amount}">✨ Öneri: ${moneyRound(sug.amount)}</button><span class="chip ghost">Son 3 ay ort.: ${moneyRound(sug.avg)}</span>` : ''}
+        ${sug ? `<button class="chip" data-action="bud-suggest" data-val="${sug.amount}">Öneri: ${moneyRound(sug.amount)}</button><span class="chip ghost">Son 3 ay ort.: ${moneyRound(sug.avg)}</span>` : ''}
         ${nowSpent ? `<span class="chip ghost">Bu ay şu ana kadar: ${moneyRound(nowSpent)}</span>` : ''}
       </div>
     </div>
@@ -424,7 +424,7 @@ function saveBudget() {
   save();
   closeSheet();
   render();
-  toast('Limit kaydedildi ✓');
+  toast('Limit kaydedildi');
 }
 
 function deleteBudget() {
@@ -459,11 +459,11 @@ function openAutoPlan() {
   const plan = autoPlan();
   if (!plan.length) { toast('Öneri için yeterli geçmiş harcama yok'); return; }
   openSheet(`
-    <div class="sheet-head"><h2>✨ Önerilen bütçe</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>Önerilen bütçe</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     <p class="muted" style="font-size:13px;margin-top:0">Son 3 aydaki ortalama harcamana göre hazırlandı (kategori limitlerine %5 pay eklendi). İstemediklerinin işaretini kaldır, tutarları sonra da değiştirebilirsin.</p>
     <div class="plan">${plan.map((p, i) => `<label class="check">
       <input type="checkbox" data-plan="${i}" checked>
-      <span class="ico" style="--c:${budgetColor(p)}">${esc(budgetIcon(p))}</span>
+      <span class="ico" style="--c:${col(budgetColor(p))}">${glyph(budgetIcon(p))}</span>
       <span style="flex:1"><b>${esc(budgetName(p))}</b><small>Ortalama ${moneyRound(p.avg)}</small></span>
       <b>${moneyRound(p.amount)}</b>
     </label>`).join('')}</div>
@@ -478,7 +478,7 @@ function applyAutoPlan() {
   save();
   closeSheet();
   render();
-  toast(`${n} limit eklendi ✓`);
+  toast(`${n} limit eklendi`);
 }
 
 /* ------------------------------ olaylar ------------------------------ */

@@ -19,10 +19,17 @@ const MONTHS_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 
 const DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 const DAYS_SHORT = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
 
-const PALETTE = [
+// Eski sürümlerde kaydedilen renkler yeni palete eşlenir (col)
+const OLD_PALETTE = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9',
   '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#a16207', '#78716c', '#64748b',
 ];
+
+const PALETTE = [
+  '#E5484D', '#E8663C', '#D9922E', '#B7A13A', '#7FA33A', '#30A46C', '#12A594', '#0E8F86', '#0B8EA8', '#3E8EDE',
+  '#3E63DD', '#5B5BD6', '#6E56CF', '#8E4EC6', '#AB4ABA', '#D6409F', '#E54666', '#A1775B', '#7C7C74', '#5F6B7A',
+];
+const col = (c) => { const i = OLD_PALETTE.indexOf(c); return i >= 0 ? PALETTE[i] : c || '#5F6B7A'; };
 
 const EMOJIS = [
   '🛒', '🍽️', '☕', '🍔', '🍕', '🥗', '🥖', '🍰', '🍺', '🚌', '🚇', '⛽', '🚕', '🚗', '🏍️', '🚲', '✈️', '🏨', '🏠', '🏢',
@@ -286,7 +293,7 @@ function shiftedPeriod(dir, p = ui.period) {
 /* ------------------------------ hesaplar ------------------------------ */
 
 const catMap = () => Object.fromEntries(db.categories.map((c) => [c.id, c]));
-const MISSING_CAT = { name: 'Kategorisiz', icon: '❔', color: '#64748b' };
+const MISSING_CAT = { name: 'Kategorisiz', icon: 'lc:circle-help', color: '#5F6B7A' };
 
 function txIn(per) {
   return db.transactions.filter((t) => t.date >= per.start && t.date <= per.end);
@@ -409,9 +416,9 @@ function periodBar() {
         </div>`
       : ''}
     <div class="period-nav">
-      <button class="arrow" data-action="period-shift" data-dir="-1" ${p.mode === 'all' ? 'disabled' : ''} aria-label="Önceki">‹</button>
+      <button class="arrow" data-action="period-shift" data-dir="-1" ${p.mode === 'all' ? 'disabled' : ''} aria-label="Önceki">${icon('chevron-left', 20)}</button>
       <button class="label" data-action="period-today" title="Bugüne dön">${esc(per.label)}</button>
-      <button class="arrow" data-action="period-shift" data-dir="1" ${p.mode === 'all' ? 'disabled' : ''} aria-label="Sonraki">›</button>
+      <button class="arrow" data-action="period-shift" data-dir="1" ${p.mode === 'all' ? 'disabled' : ''} aria-label="Sonraki">${icon('chevron-right', 20)}</button>
     </div>
   </div>`;
 }
@@ -422,16 +429,16 @@ function txRow(t, cm, showDate = false) {
     const title = to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer';
     const sub = [showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', `${from ? from.name : 'Hesap dışı'} → ${to ? to.name : '?'}`, t.note].filter(Boolean).join(' · ');
     return `<button class="tx" data-action="edit-tx" data-id="${t.id}">
-      <span class="ico" style="--c:#64748b">↔️</span>
+      <span class="ico" style="--c:#5F6B7A">${icon('arrow-left-right', 18)}</span>
       <span class="tx-main"><b>${esc(title)}</b><small>${esc(sub)}</small></span>
       <span class="amt muted">${money(t.amount)}</span>
     </button>`;
   }
   const c = cm[t.categoryId] || MISSING_CAT;
   const acc = t.accountId ? accById(t.accountId) : null;
-  const sub = [t.recId ? '🔁' : '', acc ? `${accIcon(acc)} ${acc.name}` : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
+  const sub = [acc ? acc.name : '', t.recId ? 'düzenli' : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
   return `<button class="tx" data-action="edit-tx" data-id="${t.id}">
-    <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
+    <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
     <span class="tx-main"><b>${esc(c.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>
     <span class="amt ${t.type === 'income' ? 'inc' : 'exp'}">${signed(t.amount, t.type)}</span>
   </button>`;
@@ -442,7 +449,7 @@ function viewHead(title, right = '') {
 }
 
 function emptyState(text) {
-  return `<div class="empty"><span class="big">🪙</span>${text}</div>`;
+  return `<div class="empty">${text}</div>`;
 }
 
 /* ------------------------------- ekranlar ------------------------------- */
@@ -471,13 +478,13 @@ function viewTx() {
     groups[groups.length - 1].items.push(x);
   }
   const catOpts = (type, label) => `<optgroup label="${label}">${db.categories.filter((c) => c.type === type).sort((a, b) => a.name.localeCompare(b.name, 'tr'))
-    .map((c) => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</optgroup>`;
+    .map((c) => `<option value="${c.id}" ${f.cat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`;
 
   return `
     ${viewHead('İşlemler')}
     ${periodBar()}
     <div class="filters">
-      <input type="search" placeholder="🔍 Ara (kategori, not, tutar)" value="${esc(f.q)}" data-input="tx-q">
+      <input type="search" placeholder="Ara: kategori, not, tutar" value="${esc(f.q)}" data-input="tx-q">
       <div class="row">
         <div class="seg" style="flex:1.2">
           ${[['all', 'Tümü'], ['expense', 'Gider'], ['income', 'Gelir']].map(([v, l]) => `<button data-action="tx-type" data-val="${v}" class="${f.type === v ? 'on' : ''}">${l}</button>`).join('')}
@@ -489,7 +496,7 @@ function viewTx() {
       </div>
       ${db.accounts.length ? `<select data-change="tx-acc" aria-label="Kart / hesap filtresi">
         <option value="">Tüm kartlar ve hesaplar</option>
-        ${db.accounts.map((a) => `<option value="${a.id}" ${f.acc === a.id ? 'selected' : ''}>${accIcon(a)} ${esc(accLabel(a))}</option>`).join('')}
+        ${db.accounts.map((a) => `<option value="${a.id}" ${f.acc === a.id ? 'selected' : ''}>${esc(accLabel(a))}</option>`).join('')}
       </select>` : ''}
     </div>
     <div class="mini-stats" style="margin:4px 4px 0">
@@ -550,9 +557,9 @@ function viewReport() {
         ? rows.map((r) => {
             const pct = (r.sum / catTotal) * 100;
             return `<button class="cat-row" data-action="filter-cat" data-id="${r.id}">
-              <span class="ico" style="--c:${r.cat.color}">${esc(r.cat.icon)}</span>
+              <span class="ico" style="--c:${col(r.cat.color)}">${glyph(r.cat.icon)}</span>
               <span style="flex:1;min-width:0"><b>${esc(r.cat.name)}</b>
-                <div class="bar" style="--c:${r.cat.color}"><i style="width:${pct.toFixed(1)}%"></i></div></span>
+                <div class="bar" style="--c:${col(r.cat.color)}"><i style="width:${pct.toFixed(1)}%"></i></div></span>
               <span class="right"><b>${money(r.sum)}</b><small>%${pct.toFixed(1).replace('.', ',')} · ${r.count} işlem</small></span>
             </button>`;
           }).join('')
@@ -568,7 +575,7 @@ function viewCats() {
   const cats = db.categories.filter((c) => c.type === ui.catTab)
     .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
   return `
-    <button class="back" data-action="nav" data-view="settings">‹ Ayarlar</button>
+    <button class="back" data-action="nav" data-view="settings">${icon('chevron-left', 18)} Ayarlar</button>
     ${viewHead('Kategoriler')}
     <div class="seg type" style="margin-bottom:14px">
       <button data-action="cat-tab" data-val="expense" class="${ui.catTab === 'expense' ? 'on' : ''}">Gider (${db.categories.filter((c) => c.type === 'expense').length})</button>
@@ -577,9 +584,9 @@ function viewCats() {
     <button class="btn primary block" data-action="new-cat" style="margin-bottom:14px">+ Yeni ${ui.catTab === 'income' ? 'gelir' : 'gider'} kategorisi</button>
     <div class="list">
       ${cats.map((c) => `<button class="tx" data-action="edit-cat" data-id="${c.id}">
-        <span class="ico" style="--c:${c.color}">${esc(c.icon)}</span>
+        <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
         <span class="tx-main"><b>${esc(c.name)}</b><small>${usage[c.id] ? `${usage[c.id]} işlem · ${money(sums[c.id])}` : 'Henüz kullanılmadı'}</small></span>
-        <span class="muted">›</span>
+        <span class="chev">${icon('chevron-right', 18)}</span>
       </button>`).join('') || emptyState('Kategori yok.')}
     </div>
   `;
@@ -591,7 +598,7 @@ function viewSettings() {
     ${viewHead('Ayarlar')}
     ${syncCard()}
     <div class="card">
-      <button class="between" style="width:100%" data-action="nav" data-view="cats"><span><b>🏷️ Kategoriler</b><small class="muted" style="display:block;font-size:12px;text-align:left">${db.categories.length} kategori · ekle, düzenle, sil</small></span><span class="muted">›</span></button>
+      <button class="between" style="width:100%" data-action="nav" data-view="cats"><span><b>Kategoriler</b><small class="muted" style="display:block;font-size:12px;text-align:left">${db.categories.length} kategori · ekle, düzenle, sil</small></span><span class="chev">${icon('chevron-right', 18)}</span></button>
     </div>
     <div class="card">
       <div class="setting">
@@ -622,28 +629,28 @@ function viewSettings() {
       <h3>Yedek & dışa aktarma</h3>
       <p class="muted" style="margin-top:-4px;font-size:13px">Veriler bu cihazda saklanır${syncConfigured() ? ', senkron açıksa bulutta da durur' : ''}. Yine de ara ara yedek almanı öneririm.</p>
       <div class="btn-stack">
-        <button class="btn" data-action="export-json">⬇️ Yedek al (.json)</button>
-        <button class="btn" data-action="import-json">⬆️ Yedekten geri yükle</button>
-        <button class="btn" data-action="export-csv">📄 Excel için dışa aktar (.csv)</button>
+        <button class="btn" data-action="export-json">Yedek al (.json)</button>
+        <button class="btn" data-action="import-json">Yedekten geri yükle</button>
+        <button class="btn" data-action="export-csv">Excel için dışa aktar (.csv)</button>
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
     <p class="muted" style="text-align:center;font-size:12px">${db.transactions.length} işlem · ${db.categories.length} kategori · sürüm ${APP_VERSION}</p>
-    <button class="btn block" data-action="hard-reload">🔄 Uygulamayı yenile (güncellemeyi zorla)</button>
+    <button class="btn block" data-action="hard-reload">Uygulamayı yenile</button>
   `;
 }
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 9;
+const APP_VERSION = 11;
 
 function errorCard(e) {
   return `<div class="card empty-card">
-    <span class="big">⚠️</span>
+    <span class="empty-ico warn">${icon('triangle-alert', 26)}</span>
     <b>Bu ekran açılırken bir sorun oldu</b>
     <p>Sayfayı yenilemeyi dene. Düzelmezse aşağıdaki yazıyı bana gönder.</p>
     <pre class="err">${esc([`${e?.name || 'Hata'}: ${e?.message || e}`, ...String(e?.stack || '').split('\n').slice(1, 4), `Sürüm ${APP_VERSION} · ${ui.view}`].join('\n'))}</pre>
-    <div class="btn-stack"><button class="btn primary" data-action="hard-reload">🔄 Yenile</button><button class="btn" data-action="nav" data-view="home">Özet'e dön</button></div>
+    <div class="btn-stack"><button class="btn primary" data-action="hard-reload">Yenile</button><button class="btn" data-action="nav" data-view="home">Özet'e dön</button></div>
   </div>`;
 }
 
@@ -731,7 +738,7 @@ function renderTxForm(focusAmount = false) {
     .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
   const t = todayISO(), y = toISO(addDays(new Date(), -1));
   const sheet = openSheet(`
-    <div class="sheet-head"><h2>${form.id ? 'İşlemi düzenle' : 'Yeni işlem'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${form.id ? 'İşlemi düzenle' : 'Yeni işlem'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
     <div class="seg type field">
       <button data-action="form-type" data-val="expense" class="${form.type === 'expense' ? 'on' : ''}">− Gider</button>
       <button data-action="form-type" data-val="income" class="${form.type === 'income' ? 'on' : ''}">+ Gelir</button>
@@ -744,7 +751,7 @@ function renderTxForm(focusAmount = false) {
     <div class="field">
       <label>Kategori</label>
       <div class="cat-grid">
-        ${cats.map((c) => `<button class="cat-tile ${form.categoryId === c.id ? 'on' : ''}" style="--c:${c.color}" data-action="form-cat" data-id="${c.id}"><span>${esc(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}
+        ${cats.map((c) => `<button class="cat-tile ${form.categoryId === c.id ? 'on' : ''}" style="--c:${col(c.color)}" data-action="form-cat" data-id="${c.id}"><span>${glyph(c.icon)}</span><em>${esc(c.name)}</em></button>`).join('')}
         <button class="cat-tile add" data-action="form-new-cat"><span>＋</span><em>Yeni kategori</em></button>
       </div>
     </div>
@@ -798,7 +805,7 @@ function saveTx(again) {
     closeSheet();
   }
   if (warnings.length) alertToast(warnings);
-  else toast(wasEdit ? 'Güncellendi ✓' : 'Kaydedildi ✓');
+  else toast(wasEdit ? 'Güncellendi' : 'Kaydedildi');
 }
 
 function deleteTx(id) {
@@ -829,7 +836,7 @@ function deleteTx(id) {
 let catForm = null;
 
 function openCatForm(init, onDone) {
-  catForm = { id: null, type: ui.catTab, name: '', icon: '📦', color: PALETTE[Math.floor(Math.random() * PALETTE.length)], onDone, ...init };
+  catForm = { id: null, type: ui.catTab, name: '', icon: 'lc:package', color: PALETTE[Math.floor(Math.random() * PALETTE.length)], onDone, ...init };
   renderCatForm();
 }
 
@@ -838,27 +845,26 @@ function renderCatForm() {
   const used = f.id ? db.transactions.filter((t) => t.categoryId === f.id).length : 0;
   const others = db.categories.filter((c) => c.type === f.type && c.id !== f.id).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   const sheet = openSheet(`
-    <div class="sheet-head"><h2>${f.id ? 'Kategoriyi düzenle' : 'Yeni kategori'}</h2><button class="close" data-action="cat-cancel" aria-label="Kapat">✕</button></div>
+    <div class="sheet-head"><h2>${f.id ? 'Kategoriyi düzenle' : 'Yeni kategori'}</h2><button class="close" data-action="cat-cancel" aria-label="Kapat">${icon('x', 18)}</button></div>
     ${f.id ? '' : `<div class="seg type field">
       <button data-action="catform-type" data-val="expense" class="${f.type === 'expense' ? 'on' : ''}">Gider</button>
       <button data-action="catform-type" data-val="income" class="${f.type === 'income' ? 'on' : ''}">Gelir</button>
     </div>`}
-    <div class="preview"><span class="ico" id="c-prev-ico" style="--c:${f.color}">${esc(f.icon)}</span><b id="c-prev-name">${esc(f.name) || 'Kategori adı'}</b></div>
+    <div class="preview"><span class="ico" id="c-prev-ico" style="--c:${col(f.color)}">${glyph(f.icon)}</span><b id="c-prev-name">${esc(f.name) || 'Kategori adı'}</b></div>
     <div class="field"><label>Ad</label><input id="c-name" value="${esc(f.name)}" maxlength="40" placeholder="ör. Okul servisi" data-input="catform-name"></div>
     <div class="field">
       <label>Simge</label>
-      <div class="emoji-grid">${EMOJIS.map((e) => `<button data-action="catform-icon" data-val="${e}" class="${f.icon === e ? 'on' : ''}">${e}</button>`).join('')}</div>
-      <input id="c-icon" value="${esc(f.icon)}" maxlength="8" placeholder="veya kendi emojini yaz" data-input="catform-icon" style="margin-top:8px">
+      <div class="icon-grid">${ICON_PICKER.map((n) => `<button data-action="catform-icon" data-val="lc:${n}" class="${f.icon === `lc:${n}` || EMOJI_ICON[f.icon] === n ? 'on' : ''}" aria-label="${n}">${icon(n, 20)}</button>`).join('')}</div>
     </div>
     <div class="field">
       <label>Renk</label>
-      <div class="swatches">${PALETTE.map((c) => `<button data-action="catform-color" data-val="${c}" class="${f.color === c ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
+      <div class="swatches">${PALETTE.map((c) => `<button data-action="catform-color" data-val="${c}" class="${col(f.color) === c ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>
     </div>
     <div class="actions"><button class="btn" data-action="cat-cancel">Vazgeç</button><button class="btn primary" data-action="cat-save">Kaydet</button></div>
     ${f.id ? `<div class="card" style="margin:20px 0 0;background:var(--surface-2);box-shadow:none">
       <h3>Kategoriyi sil</h3>
       ${used ? `<p class="muted" style="font-size:13px;margin-top:-4px">Bu kategoride ${used} işlem var. Silmeden önce bunlar hangi kategoriye taşınsın?</p>
-        <select id="c-move" style="margin-bottom:10px">${others.map((c) => `<option value="${c.id}">${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select>` : ''}
+        <select id="c-move" style="margin-bottom:10px">${others.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>` : ''}
       <button class="btn danger block" data-action="cat-delete" ${used && !others.length ? 'disabled' : ''}>Sil</button>
     </div>` : ''}
   `);
@@ -866,7 +872,7 @@ function renderCatForm() {
 }
 
 function updateCatPreview() {
-  $('#c-prev-ico').textContent = catForm.icon || '❔';
+  $('#c-prev-ico').innerHTML = glyph(catForm.icon || 'lc:circle-help');
   $('#c-prev-ico').style.setProperty('--c', catForm.color);
   $('#c-prev-name').textContent = catForm.name || 'Kategori adı';
 }
@@ -874,7 +880,7 @@ function updateCatPreview() {
 function saveCat() {
   const f = catForm;
   f.name = $('#c-name').value.trim();
-  f.icon = $('#c-icon').value.trim() || '📦';
+  f.icon = f.icon || 'lc:package';
   if (!f.name) { toast('Kategoriye bir ad ver'); $('#c-name').focus(); return; }
   const dup = db.categories.find((c) => c.type === f.type && c.id !== f.id && c.name.toLocaleLowerCase('tr') === f.name.toLocaleLowerCase('tr'));
   if (dup) { toast('Bu adla bir kategori zaten var'); return; }
@@ -892,7 +898,7 @@ function saveCat() {
   const done = f.onDone;
   catForm = null;
   if (done) done(id);
-  else { closeSheet(); toast('Kategori kaydedildi ✓'); }
+  else { closeSheet(); toast('Kategori kaydedildi'); }
 }
 
 function cancelCat() {
@@ -977,7 +983,7 @@ function importJson(file) {
       if (!confirm(`Yedekte ${d.transactions.length} işlem ve ${d.categories.length} kategori var.\nBurada olmayanlar eklenecek, mevcut kayıtların silinmeyecek. Devam edilsin mi?`)) return;
       const added = mergeBackup(normalize(d));
       render();
-      toast(added ? `${added} kayıt geri yüklendi ✓` : 'Yedekteki her şey zaten mevcut');
+      toast(added ? `${added} kayıt geri yüklendi` : 'Yedekteki her şey zaten mevcut');
     } catch {
       toast('Bu dosya geçerli bir Bütçem yedeği değil');
     }
@@ -1046,8 +1052,7 @@ const actions = {
   'catform-type': (el) => { catForm.name = $('#c-name').value; catForm.type = el.dataset.val; renderCatForm(); },
   'catform-icon': (el) => {
     catForm.icon = el.dataset.val;
-    $('#c-icon').value = catForm.icon;
-    $$('.emoji-grid button').forEach((b) => b.classList.toggle('on', b.dataset.val === catForm.icon));
+    $$('.icon-grid button').forEach((b) => b.classList.toggle('on', b.dataset.val === catForm.icon));
     updateCatPreview();
   },
   'catform-color': (el) => {
@@ -1089,9 +1094,9 @@ const changes = {
   'period-to': (el) => { if (el.value) { ui.period.to = el.value; render(); } },
   'tx-cat': (el) => { ui.txFilter.cat = el.value; render(); },
   'tx-acc': (el) => { ui.txFilter.acc = el.value; render(); },
-  'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
-  'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi ✓'); },
-  'set-currency': (el) => { setSetting('currency', el.value.trim() || '₺'); render(); toast('Kaydedildi ✓'); },
+  'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi'); },
+  'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi'); },
+  'set-currency': (el) => { setSetting('currency', el.value.trim() || '₺'); render(); toast('Kaydedildi'); },
   'set-theme': (el) => { setSetting('theme', el.value); render(); },
 };
 document.addEventListener('change', (e) => {
@@ -1116,7 +1121,7 @@ document.addEventListener('input', (e) => {
   } else if (key === 'catform-name') { catForm.name = e.target.value; updateCatPreview(); }
   else if (key === 'catform-icon') {
     catForm.icon = e.target.value.trim();
-    $$('.emoji-grid button').forEach((b) => b.classList.toggle('on', b.dataset.val === catForm.icon));
+    $$('.icon-grid button').forEach((b) => b.classList.toggle('on', b.dataset.val === catForm.icon));
     updateCatPreview();
   }
 });
@@ -1340,11 +1345,11 @@ async function signOutSync() {
 }
 
 const SYNC_TEXT = {
-  ok: ['✓', 'Eşitlendi', 'Eşitlendi'],
+  ok: ['', 'Eşitlendi', 'Eşitlendi'],
   syncing: ['⟳', 'Eşitleniyor…', 'Eşitleniyor'],
-  offline: ['☁︎', 'İnternet yok, bağlanınca eşitlenecek', 'Çevrimdışı'],
-  error: ['⚠', 'Eşitleme hatası', 'Hata'],
-  off: ['☁︎', 'Senkron kapalı', 'Giriş yap'],
+  offline: ['', 'İnternet yok, bağlanınca eşitlenecek', 'Çevrimdışı'],
+  error: ['', 'Eşitleme hatası', 'Hata'],
+  off: ['', 'Senkron kapalı', 'Giriş yap'],
 };
 
 function syncBadge() {
@@ -1355,7 +1360,7 @@ function syncBadge() {
 }
 
 function syncCard() {
-  const title = '<h3>☁️ Telefon ↔ bilgisayar senkronu</h3>';
+  const title = '<h3>Senkronizasyon</h3>';
   if (!syncConfigured()) {
     return `<div class="card">${title}<p class="muted" style="margin:0;font-size:13px">Henüz kurulmadı.</p></div>`;
   }

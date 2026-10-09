@@ -29,23 +29,23 @@ function todoItems() {
   for (const it of attentionItems()) {
     const inc = it.rec.type === 'income';
     out.push(`<div class="todo">
-      <span class="todo-ico">${it.state === 'late' ? '🔴' : '🟠'}</span>
+      <span class="todo-ico ${it.state === 'late' ? 'late' : 'soon'}">${icon(inc ? 'arrow-down-left' : 'calendar', 18)}</span>
       <span class="todo-main"><b>${esc(recName(it.rec))}</b><small>${inc ? 'Geldi mi?' : 'Ödendi mi?'} · ${esc(stateText(it))}</small></span>
       <button class="btn small ok" data-action="rec-confirm" data-id="${it.rec.id}" data-due="${it.due}">${inc ? 'Geldi' : 'Ödendi'}</button>
     </div>`);
   }
   for (const s of cardAttention()) {
     out.push(`<div class="todo">
-      <span class="todo-ico">${s.level === 'late' ? '🔴' : '💳'}</span>
+      <span class="todo-ico ${s.level === 'late' ? 'late' : 'soon'}">${icon('credit-card', 18)}</span>
       <span class="todo-main"><b>${esc(s.a.name)} · ${moneyRound(s.remaining)}</b><small>${esc(dueText(s))} · ${s.minDue ? `asgari ${moneyRound(s.minDue)}` : 'asgari ödendi'}</small></span>
       <button class="btn small" data-action="xfer-new" data-to="${s.a.id}">Öde</button>
     </div>`);
   }
   for (const s of budgetAttention().slice(0, 2)) {
     out.push(`<button class="todo" data-action="nav" data-view="budget">
-      <span class="todo-ico">${LEVEL_META[s.level].icon}</span>
+      <span class="todo-ico ${s.level === 'over' ? 'late' : 'soon'}">${icon('gauge', 18)}</span>
       <span class="todo-main"><b>${esc(budgetName(s.b))} limiti</b><small>${esc(statusMessage(s))}</small></span>
-      <span class="muted">›</span>
+      <span class="chev">${icon('chevron-right', 18)}</span>
     </button>`);
   }
   return out;
@@ -60,19 +60,19 @@ function viewHome() {
   const list = txIn(per);
   const t = totals(list);
   const cm = catMap();
-  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="nav" data-view="settings" aria-label="Ayarlar">⚙️</button>`);
+  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="nav" data-view="settings" aria-label="Ayarlar">${icon('settings', 20)}</button>`);
 
   if (!db.transactions.length) {
     return `${head}
       <div class="card empty-card">
-        <span class="big">👋</span>
+        <span class="empty-ico">${icon('wallet', 26)}</span>
         <b>Hoş geldin!</b>
         <p>Başlamak için birkaç adım:</p>
         <div class="steps">
-          <button data-action="add-tx"><span>➕</span>İlk harcamanı ya da gelirini ekle</button>
-          <button data-action="nav" data-view="recurring"><span>📅</span>Maaş, kira, faturaları ekle</button>
-          <button data-action="nav" data-view="cards"><span>💳</span>Kartlarını ve borcunu ekle</button>
-          <button data-action="nav" data-view="budget"><span>🎯</span>Aylık bütçe limiti koy</button>
+          <button data-action="add-tx"><span>${icon('plus', 18)}</span>İlk harcamanı ya da gelirini ekle</button>
+          <button data-action="nav" data-view="recurring"><span>${icon('repeat', 18)}</span>Maaş, kira, faturaları ekle</button>
+          <button data-action="nav" data-view="cards"><span>${icon('credit-card', 18)}</span>Kartlarını ve borcunu ekle</button>
+          <button data-action="nav" data-view="budget"><span>${icon('target', 18)}</span>Aylık bütçe limiti koy</button>
         </div>
       </div>`;
   }
@@ -88,8 +88,8 @@ function viewHome() {
       <small>${isCurrent ? 'Bu ay kalan' : 'Ay sonu kalan'}</small>
       <div class="hero-num">${money(t.net)}</div>
       <div class="hero-row">
-        <span><i>↓</i> Gelir <b>${moneyRound(t.inc)}</b></span>
-        <span><i>↑</i> Gider <b>${moneyRound(t.exp)}</b></span>
+        <span><i>${icon('arrow-down-left', 15)}</i><span><small>Gelir</small><b>${money(t.inc)}</b></span></span>
+        <span><i>${icon('arrow-up-right', 15)}</i><span><small>Gider</small><b>${money(t.exp)}</b></span></span>
       </div>
       ${isCurrent ? budgetMini() : ''}
     </div>
@@ -97,9 +97,9 @@ function viewHome() {
     ${top.length ? `<div class="sec-head"><h2 class="sec">Nereye harcadın?</h2><button class="link" data-action="nav" data-view="report">Rapor ›</button></div>
       <div class="card spend">
         ${top.map((r) => `<button class="spend-row" data-action="filter-cat" data-id="${r.id}">
-          <span class="ico sm" style="--c:${r.cat.color}">${esc(r.cat.icon)}</span>
+          <span class="ico sm" style="--c:${col(r.cat.color)}">${glyph(r.cat.icon)}</span>
           <span class="spend-main"><span class="between"><b>${esc(r.cat.name)}</b><b>${moneyRound(r.sum)}</b></span>
-            <span class="thin"><i style="width:${((r.sum / top[0].sum) * 100).toFixed(1)}%;background:${r.cat.color}"></i></span></span>
+            <span class="thin"><i style="width:${((r.sum / top[0].sum) * 100).toFixed(1)}%;background:${col(r.cat.color)}"></i></span></span>
         </button>`).join('')}
         ${cats.length > 5 ? `<small class="muted">+${cats.length - 5} kategori daha</small>` : ''}
       </div>` : ''}
@@ -118,8 +118,8 @@ function viewPlan() {
     : `<button class="btn small" data-action="rec-new">+ Ekle</button>`;
   return `${viewHead('Plan', right)}
     <div class="seg tabs">
-      <button data-action="plan-tab" data-val="budget" class="${tab === 'budget' ? 'on' : ''}">🎯 Bütçe</button>
-      <button data-action="plan-tab" data-val="recurring" class="${tab === 'recurring' ? 'on' : ''}">📅 Düzenli${att ? ` <i class="dot-count">${att}</i>` : ''}</button>
+      <button data-action="plan-tab" data-val="budget" class="${tab === 'budget' ? 'on' : ''}">Bütçe</button>
+      <button data-action="plan-tab" data-val="recurring" class="${tab === 'recurring' ? 'on' : ''}">Düzenli${att ? ` <i class="dot-count">${att}</i>` : ''}</button>
     </div>
     ${tab === 'budget' ? viewBudget() : viewRecurring()}`;
 }
