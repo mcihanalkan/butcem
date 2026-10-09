@@ -1,14 +1,16 @@
 // Bütçem bildirim görevi — GitHub Actions tarafından sabah 09:00 ve akşam 20:00 (Türkiye) çalıştırılır.
 // Firestore'daki verilere bakar, gerekiyorsa kayıtlı cihazlara bildirim gönderir.
 // DİKKAT: Bu deponun Actions çıktıları herkese açıktır; buraya isim, tutar gibi kişisel bilgi YAZDIRMA.
-import admin from 'firebase-admin';
+import { initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { MODE, TODAY, remindersFor, compose } from './logic.mjs';
 
 const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 if (!sa.project_id) { console.log('Bildirim kurulumu henüz tamamlanmadı (FIREBASE_SERVICE_ACCOUNT yok); atlanıyor.'); process.exit(0); }
-admin.initializeApp({ credential: admin.credential.cert(sa) });
-const fdb = admin.firestore();
-const fcm = admin.messaging();
+initializeApp({ credential: cert(sa) });
+const fdb = getFirestore();
+const fcm = getMessaging();
 
 /* ------------------------------ çalıştır ------------------------------ */
 const live = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => !x.deleted);
