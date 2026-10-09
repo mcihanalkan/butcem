@@ -128,24 +128,23 @@ function setSetting(key, value) {
   touch('set', 'main');
   save();
 }
-// Yedek yükleme / sıfırlama gibi toplu değişikliklerde: eskiden olup artık olmayanları sil, kalan her şeyi güncel say.
-function replaceAllData(next) {
+// Yedekten geri yükleme: hiçbir şeyi silmez. Yedekte olup burada olmayan (ya da burada silinmiş)
+// kayıtları geri ekler; burada zaten olanlara dokunmaz. Kaç kayıt eklendiğini döndürür.
+function mergeBackup(backup) {
   const now = Date.now();
-  const keep = new Set([...next.transactions, ...next.categories].map((x) => x.id));
-  const tombs = [
-    ...db.transactions.filter((t) => !keep.has(t.id)).map((t) => ({ id: t.id, kind: 'tx', at: now })),
-    ...db.categories.filter((c) => !keep.has(c.id)).map((c) => ({ id: c.id, kind: 'cat', at: now })),
-  ];
-  next.deleted = [...next.deleted.filter((d) => !keep.has(d.id)), ...tombs];
-  next.pending = {};
-  next.sync = db.sync;
-  db = next;
-  for (const t of db.transactions) { t.updatedAt = now; touch('tx', t.id); }
-  for (const c of db.categories) { c.updatedAt = now; touch('cat', c.id); }
-  for (const d of tombs) touch(d.kind, d.id);
-  db.settings.updatedAt = now;
-  touch('set', 'main');
+  let added = 0;
+  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions]]) {
+    const have = new Set(arr.map((x) => x.id));
+    for (const item of list) {
+      if (!item || !item.id || have.has(item.id)) continue;
+      arr.push({ ...item, updatedAt: now });
+      db.deleted = db.deleted.filter((d) => d.id !== item.id);
+      touch(kind, item.id);
+      added++;
+    }
+  }
   save();
+  return added;
 }
 
 /* --------------------------- arayüz durumu --------------------------- */
@@ -655,10 +654,6 @@ function viewSettings() {
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
-    <div class="card">
-      <h3>Tehlikeli bölge</h3>
-      <button class="btn danger block" data-action="reset">Tüm verileri sil</button>
-    </div>
     <p class="muted" style="text-align:center;font-size:12px">${db.transactions.length} işlem · ${db.categories.length} kategori</p>
   `;
 }
@@ -798,7 +793,7 @@ function deleteTx(id) {
   const i = db.transactions.findIndex((x) => x.id === id);
   if (i < 0) return;
   const [tx] = db.transactions.splice(i, 1);
-  db.deleted.push({ id, kind: 'tx', at: Date.now() });
+  db.deleted.push({ id, kind: 'tx', at: Date.now(), data: tx });
   touch('tx', id);
   save();
   closeSheet();
@@ -903,7 +898,7 @@ function deleteCat() {
     used.forEach((t) => { t.categoryId = target; t.updatedAt = now; touch('tx', t.id); });
   } else if (!confirm(`"${f.name}" kategorisi silinsin mi?`)) return;
   db.categories = db.categories.filter((c) => c.id !== f.id);
-  db.deleted.push({ id: f.id, kind: 'cat', at: now });
+  db.deleted.push({ id: f.id, kind: 'cat', at: now, data: db.categories.find((c) => c.id === f.id) });
   touch('cat', f.id);
   if (ui.txFilter.cat === f.id) ui.txFilter.cat = '';
   save();
@@ -963,10 +958,10 @@ function importJson(file) {
     try {
       const d = JSON.parse(r.result);
       if (!Array.isArray(d.transactions) || !Array.isArray(d.categories)) throw new Error('format');
-      if (!confirm(`Yedekte ${d.transactions.length} işlem ve ${d.categories.length} kategori var.\nMevcut verilerin YERİNE geçecek. Devam edilsin mi?`)) return;
-      replaceAllData(normalize(d));
+      if (!confirm(`Yedekte ${d.transactions.length} işlem ve ${d.categories.length} kategori var.\nBurada olmayanlar eklenecek, mevcut kayıtların silinmeyecek. Devam edilsin mi?`)) return;
+      const added = mergeBackup(normalize(d));
       render();
-      toast('Yedek geri yüklendi ✓');
+      toast(added ? `${added} kayıt geri yüklendi ✓` : 'Yedekteki her şey zaten mevcut');
     } catch {
       toast('Bu dosya geçerli bir Bütçem yedeği değil');
     }
@@ -1052,13 +1047,6 @@ const actions = {
   'export-json': () => exportJson(),
   'export-csv': () => exportCsv(),
   'import-json': () => $('#import-file').click(),
-  'reset': () => {
-    if (!confirm('TÜM işlemler ve kategoriler silinecek. Önce yedek almanı öneririm. Emin misin?')) return;
-    if (!confirm('Son kez soruyorum: geri alınamaz. Silinsin mi?')) return;
-    replaceAllData(freshData());
-    render();
-    toast('Tüm veriler silindi');
-  },
 };
 
 document.addEventListener('click', (e) => {
@@ -1251,7 +1239,8 @@ function payloadFor(kind, id) {
   const it = arr.find((x) => x.id === id);
   if (it) return JSON.parse(JSON.stringify(it));
   const tomb = db.deleted.find((d) => d.id === id);
-  return tomb ? { deleted: true, updatedAt: tomb.at } : null;
+  // Silinen kayıt bulutta içeriğiyle birlikte "silindi" işaretli kalır; gerekirse geri getirilebilir.
+  return tomb ? { ...JSON.parse(JSON.stringify(tomb.data || {})), deleted: true, updatedAt: tomb.at } : null;
 }
 
 function schedulePush() {
