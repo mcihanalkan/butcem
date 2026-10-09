@@ -529,3 +529,6 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 .kpi-row small { font-size: 13px; font-weight: 600; }
 .kpi-row b { font-size: 15px; overflow: visible; }
 .brand-mark::before { content: ""; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #3CD69C; right: 8px; top: 11px; z-index: 1; }
+/* İleri tarihli (planlı) kayıt: tarihi gelene kadar soluk */
+.tx.planned .amt { color: var(--muted) !important; }
+.tx.planned .ico { opacity: .55; }

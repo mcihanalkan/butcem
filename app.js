@@ -295,18 +295,25 @@ function shiftedPeriod(dir, p = ui.period) {
 const catMap = () => Object.fromEntries(db.categories.map((c) => [c.id, c]));
 const MISSING_CAT = { name: 'Kategorisiz', icon: 'lc:circle-help', color: '#5F6B7A' };
 
+// İleri tarihli kayıt: tarihi gelene kadar bakiyeye, toplamlara ve bütçeye girmez
+const isPlanned = (t) => t.date > todayISO();
+
 function txIn(per) {
   return db.transactions.filter((t) => t.date >= per.start && t.date <= per.end);
 }
 function totals(list) {
   let inc = 0, exp = 0;
-  for (const t of list) if (t.type === 'income') inc += t.amount; else if (t.type === 'expense') exp += t.amount;
+  for (const t of list) {
+    if (isPlanned(t)) continue;
+    if (t.type === 'income') inc += t.amount;
+    else if (t.type === 'expense') exp += t.amount;
+  }
   return { inc, exp, net: inc - exp };
 }
 function byCategory(list, type) {
   const map = {};
   for (const t of list) {
-    if (t.type !== type) continue;
+    if (t.type !== type || isPlanned(t)) continue;
     (map[t.categoryId] ||= { id: t.categoryId, sum: 0, count: 0 });
     map[t.categoryId].sum += t.amount;
     map[t.categoryId].count++;
@@ -342,6 +349,7 @@ function buckets(per) {
   const keyLen = unit === 'day' ? 10 : unit === 'month' ? 7 : 4;
   const idx = Object.fromEntries(list.map((b, i) => [b.key, i]));
   for (const t of txIn(per)) {
+    if (isPlanned(t)) continue;
     const b = list[idx[t.date.slice(0, keyLen)]];
     if (b && t.type === 'income') b.inc += t.amount;
     else if (b && t.type === 'expense') b.exp += t.amount;
@@ -436,8 +444,9 @@ function txRow(t, cm, showDate = false) {
   }
   const c = cm[t.categoryId] || MISSING_CAT;
   const acc = t.accountId ? accById(t.accountId) : null;
-  const sub = [acc ? acc.name : '', t.recId ? 'düzenli' : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
-  return `<button class="tx" data-action="edit-tx" data-id="${t.id}">
+  const planned = isPlanned(t);
+  const sub = [planned ? 'Planlı' : '', acc ? acc.name : '', t.recId ? 'düzenli' : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
+  return `<button class="tx${planned ? ' planned' : ''}" data-action="edit-tx" data-id="${t.id}">
     <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
     <span class="tx-main"><b>${esc(c.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>
     <span class="amt ${t.type === 'income' ? 'inc' : 'exp'}">${signed(t.amount, t.type)}</span>
@@ -642,7 +651,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -730,6 +739,8 @@ function syncForm() {
   if (a) form.amountText = a.value;
   if (d) form.date = d.value;
   if (n) form.note = n.value;
+  const r = $('#f-repeat', s);
+  if (r) form.repeat = r.checked;
 }
 
 function renderTxForm(focusAmount = false) {
@@ -757,7 +768,8 @@ function renderTxForm(focusAmount = false) {
     </div>
     <div class="field">
       <label>Tarih</label>
-      <input type="date" id="f-date" value="${form.date}">
+      <input type="date" id="f-date" value="${form.date}" data-change="f-date">
+      <small class="acc-info" id="f-date-hint">${form.date > todayISO() ? 'İleri tarihli: bu tarih gelene kadar bakiyeye ve toplamlara eklenmez.' : ''}</small>
       <div class="chips">
         <button class="chip" data-action="form-date" data-val="${t}">Bugün</button>
         <button class="chip" data-action="form-date" data-val="${y}">Dün</button>
@@ -767,12 +779,37 @@ function renderTxForm(focusAmount = false) {
       <label>Not</label>
       <input id="f-note" placeholder="İsteğe bağlı (ör. A101, Ali'ye borç…)" value="${esc(form.note)}" maxlength="200">
     </div>
+    ${form.id ? (!form.recId && form.type !== 'transfer' ? `<button class="xfee-add" data-action="tx-to-rec" data-id="${form.id}">${icon('repeat', 18)}&nbsp; Düzenli kayda çevir (her ay tekrarlansın)</button>` : '')
+      : `<label class="check"><input type="checkbox" id="f-repeat" ${form.repeat ? 'checked' : ''}><span><b>Her ay tekrarla</b><small>Düzenli ${form.type === 'income' ? 'gelir' : 'gider'} olarak kaydedilir; her ay bu gün "${form.type === 'income' ? 'geldi mi' : 'ödendi mi'}?" diye sorulur.</small></span></label>`}
     <div class="actions">
       ${form.id ? `<button class="btn danger" data-action="delete-tx" data-id="${form.id}">Sil</button>` : `<button class="btn" data-action="save-tx" data-again="1">Kaydet + yeni</button>`}
       <button class="btn primary" data-action="save-tx">Kaydet</button>
     </div>
   `);
   if (focusAmount) setTimeout(() => $('#f-amount', sheet)?.focus(), 50);
+}
+
+// "Her ay tekrarla": düzenli kayıt oluşturur. Tarih bugün ya da geçmişteyse ilk sefer "geldi/ödendi" olarak da kaydedilir.
+function saveAsRecurring(data) {
+  const now = Date.now();
+  const id = uid();
+  const rec = {
+    id, type: data.type, name: data.note || (catMap()[data.categoryId] || MISSING_CAT).name, amount: data.amount, categoryId: data.categoryId,
+    freq: 'monthly', day: fromISO(data.date).getDate(), startDate: data.date, endDate: null, count: null,
+    variable: false, paused: false, accountId: data.accountId, skipped: [], createdAt: now, updatedAt: now,
+  };
+  db.recurring.push(rec);
+  touch('rec', id);
+  if (data.date <= todayISO()) {
+    const txId = uid();
+    db.transactions.push({ id: txId, createdAt: now, ...data, recId: id, recDate: data.date });
+    touch('tx', txId);
+  }
+  save();
+  closeSheet();
+  render();
+  const next = nextOccurrence(rec, toISO(addDays(fromISO(todayISO()), data.date <= todayISO() ? 1 : 0)));
+  toast(`Düzenli kayıt eklendi${next ? ` · sıradaki ${fullDay(next)}` : ''}`);
 }
 
 function saveTx(again) {
@@ -784,6 +821,7 @@ function saveTx(again) {
   const now = Date.now();
   const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), accountId: form.accountId || null, updatedAt: now };
   if (!form.id) rememberAccount(form.accountId);
+  if (!form.id && $('#f-repeat')?.checked) { saveAsRecurring(data); return; }
   const budgetBefore = budgetSnapshot(form.date);
   if (form.id) {
     const tx = db.transactions.find((x) => x.id === form.id);
@@ -1000,7 +1038,7 @@ const actions = {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
     if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
     if (t?.type === 'transfer') openTransfer({ id: t.id });
-    else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '' });
+    else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '', recId: t.recId || null });
   },
   'close-sheet': () => closeSheet(),
 
@@ -1093,6 +1131,7 @@ const changes = {
   'period-from': (el) => { if (el.value) { ui.period.from = el.value; render(); } },
   'period-to': (el) => { if (el.value) { ui.period.to = el.value; render(); } },
   'tx-cat': (el) => { ui.txFilter.cat = el.value; render(); },
+  'f-date': (el) => { const h = $('#f-date-hint'); if (h) h.textContent = el.value > todayISO() ? 'İleri tarihli: bu tarih gelene kadar bakiyeye ve toplamlara eklenmez.' : ''; },
   'tx-acc': (el) => { ui.txFilter.acc = el.value; render(); },
   'set-monthStart': (el) => { setSetting('monthStartDay', Number(el.value)); render(); toast('Kaydedildi'); },
   'set-weekStart': (el) => { setSetting('weekStartDay', Number(el.value)); render(); toast('Kaydedildi'); },

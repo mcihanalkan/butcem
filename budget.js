@@ -27,14 +27,15 @@ const pctText = (p) => `%${Math.round(p * 100)}`;
 const FIXED_CATS = new Set(['Kira', 'Aidat', 'Elektrik', 'Su', 'Doğalgaz', 'İnternet', 'Telefon faturası', 'Abonelikler', 'Sigorta', 'Vergi / Harç', 'Kredi kartı ödemesi', 'Kredi / Borç', 'Eğitim / Kurs'].map((n) => defCatId('expense', n)));
 
 function spentSplit(per, b) {
-  let fixed = 0, variable = 0;
+  let fixed = 0, variable = 0, future = 0;
   for (const t of db.transactions) {
     if (t.type !== 'expense' || t.date < per.start || t.date > per.end) continue;
     if (b.scope !== 'total' && t.categoryId !== b.categoryId) continue;
+    if (isPlanned(t)) { future += t.amount; continue; } // ileri tarihli: tahmine eklenir, harcanana değil
     if (FIXED_CATS.has(t.categoryId)) fixed += t.amount;
     else variable += t.amount;
   }
-  return { fixed, variable, total: fixed + variable };
+  return { fixed, variable, future, total: fixed + variable };
 }
 const spentIn = (per, b) => spentSplit(per, b).total;
 
@@ -59,7 +60,7 @@ function budgetStatus(b, per = budgetPeriod()) {
   // Tahmin: sabit giderler olduğu gibi + değişken giderlerin günlük ortalaması × ayın gün sayısı
   // + bu ay henüz ödenmemiş düzenli giderler (kira, fatura…)
   const planned = isCurrent ? plannedPending(per, b) : 0;
-  const projected = isPast ? spent : isCurrent && elapsed >= 3 ? split.fixed + planned + Math.round((split.variable / elapsed) * per.days) : null;
+  const projected = isPast ? spent : isCurrent && elapsed >= 3 ? split.fixed + split.future + planned + Math.round((split.variable / elapsed) * per.days) : null;
   const remaining = limit - spent;
   const daily = isCurrent && remaining > 0 ? Math.floor(remaining / daysLeft) : 0;
   let fullDate = null; // bu hızla limitin dolacağı gün

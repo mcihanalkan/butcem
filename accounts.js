@@ -22,7 +22,8 @@ const accLabel = (a) => `${a.name}${a.last4 ? ` •${a.last4}` : ''}`;
 const accCounts = (a, t) => (t.createdAt || 0) >= (a.createdAt || 0);
 
 /* Kredi kartında: borç (pozitif = borç). Banka/nakitte: bakiye. */
-function accBalance(a, until = '9999-12-31') {
+// Varsayılan: bugüne kadarki durum (ileri tarihli kayıtlar tarihi gelince yansır)
+function accBalance(a, until = todayISO()) {
   let v = a.opening || 0;
   const credit = a.kind === 'credit';
   for (const t of db.transactions) {
@@ -56,7 +57,7 @@ function cardStatus(a) {
   const due = dueAfter(a, stmt);
   const stmtDebt = Math.max(0, a.stmtOpeningDate === stmt && a.stmtOpening != null ? a.stmtOpening : accBalance(a, stmt));
   let paid = 0;
-  for (const t of db.transactions) if (t.type === 'transfer' && t.toId === a.id && t.date > stmt && accCounts(a, t)) paid += t.amount;
+  for (const t of db.transactions) if (t.type === 'transfer' && t.toId === a.id && t.date > stmt && !isPlanned(t) && accCounts(a, t)) paid += t.amount;
   const remaining = Math.max(0, stmtDebt - paid);
   const minDue = Math.max(0, Math.round((stmtDebt * (a.minPct || 20)) / 100) - paid);
   const limit = a.limit || 0;

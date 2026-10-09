@@ -480,6 +480,15 @@ function saveRec() {
   if (id) Object.assign(db.recurring.find((x) => x.id === id), data);
   else { id = uid(); db.recurring.push({ id, skipped: [], createdAt: now, ...data }); }
   touch('rec', id);
+  // Bir işlemden çevrildiyse: tarihi geldiyse ilk sefer olarak bağla, ileri tarihliyse işlemi kaldır (günü gelince sorulacak)
+  const src = f.fromTx && db.transactions.find((t) => t.id === f.fromTx);
+  if (src) {
+    if (src.date > todayISO()) {
+      db.transactions = db.transactions.filter((t) => t.id !== src.id);
+      db.deleted.push({ id: src.id, kind: 'tx', at: now, data: src });
+    } else Object.assign(src, { recId: id, recDate: src.date, updatedAt: now });
+    touch('tx', src.id);
+  }
   save();
   closeSheet();
   render();
@@ -517,6 +526,15 @@ function applyTemplate(t) {
 
 Object.assign(actions, {
   'rec-new': () => openRecForm(),
+  'tx-to-rec': (el) => {
+    const t = db.transactions.find((x) => x.id === el.dataset.id);
+    if (!t) return;
+    const d = fromISO(t.date);
+    openRecForm({
+      type: t.type, name: t.note || (catMap()[t.categoryId] || MISSING_CAT).name, amountText: amountToInput(t.amount),
+      categoryId: t.categoryId, freq: 'monthly', day: d.getDate(), weekday: d.getDay(), startDate: t.date, accountId: t.accountId || '', fromTx: t.id,
+    });
+  },
   'rec-tpl': (el) => { openRecForm(); applyTemplate(REC_TEMPLATES[Number(el.dataset.i)]); renderRecForm(); },
   'rec-edit': (el) => {
     const r = db.recurring.find((x) => x.id === el.dataset.id);
