@@ -622,21 +622,40 @@ function viewSettings() {
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
     </div>
-    <p class="muted" style="text-align:center;font-size:12px">${db.transactions.length} işlem · ${db.categories.length} kategori</p>
+    <p class="muted" style="text-align:center;font-size:12px">${db.transactions.length} işlem · ${db.categories.length} kategori · sürüm ${APP_VERSION}</p>
+    <button class="btn block" data-action="hard-reload">🔄 Uygulamayı yenile (güncellemeyi zorla)</button>
   `;
 }
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
+
+const APP_VERSION = 6;
+
+function errorCard(e) {
+  return `<div class="card empty-card">
+    <span class="big">⚠️</span>
+    <b>Bu ekran açılırken bir sorun oldu</b>
+    <p>Sayfayı yenilemeyi dene. Düzelmezse aşağıdaki yazıyı bana gönder.</p>
+    <pre class="err">${esc([`${e?.name || 'Hata'}: ${e?.message || e}`, ...String(e?.stack || '').split('\n').slice(1, 4), `Sürüm ${APP_VERSION} · ${ui.view}`].join('\n'))}</pre>
+    <div class="btn-stack"><button class="btn primary" data-action="hard-reload">🔄 Yenile</button><button class="btn" data-action="nav" data-view="home">Özet'e dön</button></div>
+  </div>`;
+}
 
 function render() {
   if (ui.view === 'budget' || ui.view === 'recurring') { ui.planTab = ui.view; ui.view = 'plan'; }
   if (!VIEWS[ui.view]) ui.view = 'home';
   const main = $('#main');
   const scroll = window.scrollY;
-  main.innerHTML = VIEWS[ui.view]();
+  try {
+    main.innerHTML = VIEWS[ui.view]();
+  } catch (e) {
+    // Bir ekran hata verirse boş kalmasın: hatayı göster, yenileme seçeneği sun
+    console.error(e);
+    main.innerHTML = errorCard(e);
+  }
   window.scrollTo(0, scroll);
   $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === ui.view));
-  if (typeof updateNavBadges === 'function') updateNavBadges();
+  try { if (typeof updateNavBadges === 'function') updateNavBadges(); } catch (e) { console.error(e); }
   applyTheme();
   saveUi();
 }
@@ -1032,6 +1051,14 @@ const actions = {
   'sync-login': () => signIn(),
   'sync-logout': () => signOutSync(),
   'sync-now': () => { if (sync.user) startListening(); },
+  // Önbelleği (sadece uygulama dosyaları; verilere dokunmaz) temizleyip yeniden yükle
+  'hard-reload': async () => {
+    try {
+      for (const k of await caches.keys()) await caches.delete(k);
+      await (await navigator.serviceWorker?.getRegistration())?.update();
+    } catch {}
+    location.reload();
+  },
   'export-json': () => exportJson(),
   'export-csv': () => exportCsv(),
   'import-json': () => $('#import-file').click(),
@@ -1041,7 +1068,9 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || el.disabled) return;
   const fn = actions[el.dataset.action];
-  if (fn) { e.preventDefault(); fn(el, e); }
+  if (!fn) return;
+  e.preventDefault();
+  try { fn(el, e); } catch (err) { console.error(err); toast(`Hata: ${err.message}`); }
 });
 
 const changes = {
