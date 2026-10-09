@@ -26,6 +26,19 @@ function greeting() {
 
 function todoItems() {
   const out = [];
+  // Tarihi gelmiş, onay bekleyen ileri tarihli kayıtlar
+  for (const t of awaitingDue()) {
+    const tr = t.type === 'transfer';
+    const c = catMap()[t.categoryId] || MISSING_CAT;
+    const title = tr ? (accById(t.toId)?.kind === 'credit' ? `${accById(t.toId).name} ödemesi` : 'Transfer') : (t.note || c.name);
+    const ask = tr ? 'Gönderildi mi?' : t.type === 'income' ? 'Geldi mi?' : 'Ödendi mi?';
+    const late = t.date < todayISO();
+    out.push(`<div class="todo">
+      <span class="todo-ico ${late ? 'late' : 'soon'}">${tr ? icon('arrow-left-right', 18) : glyph(c.icon, 18)}</span>
+      <span class="todo-main"><b>${esc(title)} · ${money(t.amount)}</b><small>${ask} · ${shortDay(t.date)}</small></span>
+      <button class="btn small ok" data-action="edit-tx" data-id="${t.id}">Onayla</button>
+    </div>`);
+  }
   for (const it of attentionItems()) {
     const inc = it.rec.type === 'income';
     out.push(`<div class="todo">
@@ -129,6 +142,7 @@ function viewPlan() {
 function updateNavBadges() {
   const set = (id, n) => { const el = $(id); if (el) { el.hidden = !n; el.textContent = n > 9 ? '9+' : String(n); } };
   set('#badge-plan', attentionItems().length);
+  set('#badge-tx', awaitingDue().length);
   set('#badge-cards', cardAttention().length);
 }
 

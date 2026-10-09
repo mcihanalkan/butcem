@@ -532,3 +532,7 @@ input.invalid { border-color: var(--exp) !important; box-shadow: 0 0 0 4px color
 /* İleri tarihli (planlı) kayıt: tarihi gelene kadar soluk */
 .tx.planned .amt { color: var(--muted) !important; }
 .tx.planned .ico { opacity: .55; }
+/* Onay bekleyen kayıt kutusu (işlem formunda) */
+.await-box { background: color-mix(in srgb, var(--warn) 10%, var(--surface-2)); border-radius: 16px; padding: 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.await-box b { color: var(--warn); }
+.await-box small { color: var(--text-2); font-size: 13px; font-weight: 500; margin-bottom: 6px; }

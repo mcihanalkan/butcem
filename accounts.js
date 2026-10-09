@@ -27,7 +27,7 @@ function accBalance(a, until = todayISO()) {
   let v = a.opening || 0;
   const credit = a.kind === 'credit';
   for (const t of db.transactions) {
-    if (t.date > until || !accCounts(a, t)) continue;
+    if (t.date > until || t.awaiting || !accCounts(a, t)) continue;
     if (t.type === 'transfer') {
       if (t.toId === a.id) v += credit ? -t.amount : t.amount;
       if (t.fromId === a.id) v += credit ? t.amount : -t.amount;
@@ -279,7 +279,7 @@ function ensureFeeCategory() {
 let xfer = null;
 
 function openTransfer(init = {}) {
-  xfer = { id: null, fromId: '', toId: '', sentText: '', feeText: '', feeMode: 'extra', date: todayISO(), note: '', ...init };
+  xfer = { id: null, fromId: '', toId: '', sentText: '', feeText: '', feeMode: 'extra', date: todayISO(), note: '', awaiting: false, ...init };
   if (init.id) {
     const t = db.transactions.find((x) => x.id === init.id);
     const fee = db.transactions.find((x) => x.feeOf === init.id);
@@ -287,6 +287,7 @@ function openTransfer(init = {}) {
       const feeAmt = fee ? fee.amount : 0;
       const mode = t.feeMode === 'deduct' ? 'deduct' : 'extra';
       Object.assign(xfer, {
+        awaiting: !!t.awaiting,
         fromId: t.fromId || '', toId: t.toId || '', date: t.date, note: t.note || '', feeMode: mode,
         sentText: amountToInput(mode === 'deduct' ? t.amount + feeAmt : t.amount),
         feeText: feeAmt ? amountToInput(feeAmt) : '',
@@ -427,6 +428,7 @@ function renderTransfer() {
 
     <div class="actions">
       ${f.id ? `<button class="btn danger" data-action="delete-tx" data-id="${f.id}" style="flex:.5">Sil</button>` : ''}
+      ${f.awaiting ? `<button class="btn" data-action="x-confirm">${icon('check', 18)} Gönderildi, onayla</button>` : ''}
       <button class="btn primary xsend" id="x-save" data-action="x-save">${xferButtonLabel()}</button>
     </div>
   `);
@@ -440,7 +442,7 @@ function syncTransfer() {
   xfer.note = $('#x-note').value;
 }
 
-function saveTransfer() {
+function saveTransfer(confirmNow = false) {
   syncTransfer();
   const f = xfer;
   const c = xferCalc();
@@ -449,8 +451,11 @@ function saveTransfer() {
   if (!(c.sent > 0)) { $('#x-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
   if (!c.ok) { $('#x-fee').classList.add('invalid'); toast('Komisyon tutarını kontrol et'); return; }
   const now = Date.now();
-  const date = f.date || todayISO();
-  const data = { type: 'transfer', amount: c.received, fromId: f.fromId || null, toId: f.toId, date, note: f.note.trim(), feeMode: f.feeMode, categoryId: null, updatedAt: now };
+  const today = todayISO();
+  let date = f.date || today;
+  if (confirmNow && date > today) date = today;
+  const awaiting = !confirmNow && (date > today || !!f.awaiting);
+  const data = { type: 'transfer', amount: c.received, fromId: f.fromId || null, toId: f.toId, date, note: f.note.trim(), feeMode: f.feeMode, categoryId: null, awaiting, updatedAt: now };
   let id = f.id;
   if (id) Object.assign(db.transactions.find((t) => t.id === id), data);
   else { id = uid(); db.transactions.push({ id, createdAt: now, ...data }); }
@@ -460,7 +465,7 @@ function saveTransfer() {
   const feeTx = db.transactions.find((t) => t.feeOf === id);
   if (c.fee > 0) {
     ensureFeeCategory();
-    const fd = { type: 'expense', amount: c.fee, categoryId: FEE_CAT_ID, accountId: f.fromId || null, date, note: `Transfer komisyonu → ${accById(f.toId)?.name || ''}`, feeOf: id, updatedAt: now };
+    const fd = { type: 'expense', amount: c.fee, categoryId: FEE_CAT_ID, accountId: f.fromId || null, date, note: `Transfer komisyonu → ${accById(f.toId)?.name || ''}`, feeOf: id, awaiting, updatedAt: now };
     if (feeTx) { Object.assign(feeTx, fd); touch('tx', feeTx.id); }
     else { const fid = uid(); db.transactions.push({ id: fid, createdAt: now, ...fd }); touch('tx', fid); }
   } else if (feeTx) {
@@ -473,7 +478,8 @@ function saveTransfer() {
   closeSheet();
   render();
   const to = accById(f.toId);
-  toast(`${to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer'} kaydedildi: ${moneyRound(c.received)} geçti${c.fee ? `, ${moneyRound(c.fee)} komisyon` : ''}`);
+  if (awaiting) toast(`Planlandı · ${fullDay(date)} günü onayın istenecek`);
+  else toast(`${to?.kind === 'credit' ? `${to.name} ödemesi` : 'Transfer'} kaydedildi: ${moneyRound(c.received)} geçti${c.fee ? `, ${moneyRound(c.fee)} komisyon` : ''}`);
 }
 
 /* ----------------- işlem formunda kart/hesap seçimi ----------------- */
@@ -545,6 +551,7 @@ Object.assign(actions, {
   'x-fee-on': () => { syncTransfer(); xfer.showFee = true; renderTransfer(); setTimeout(() => $('#x-fee')?.focus(), 50); },
   'x-fee-off': () => { syncTransfer(); xfer.showFee = false; xfer.feeText = ''; renderTransfer(); },
   'x-save': () => saveTransfer(),
+  'x-confirm': () => saveTransfer(true),
   'form-acc': (el) => { form.accountId = pickAccount(el); },
 });
 

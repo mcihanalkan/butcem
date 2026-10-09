@@ -95,7 +95,7 @@ function normalize(d) {
     version: 1,
     settings: { ...base.settings, ...(d.settings || {}) },
     categories: Array.isArray(d.categories) ? d.categories : base.categories,
-    transactions: Array.isArray(d.transactions) ? d.transactions : [],
+    transactions: (Array.isArray(d.transactions) ? d.transactions : []).map((t) => (t.awaiting === undefined && t.date > todayISO() && !t.recId ? { ...t, awaiting: true } : t)),
     deleted: (Array.isArray(d.deleted) ? d.deleted : []).map((x) => ({ kind: 'tx', ...x })),
     recurring: Array.isArray(d.recurring) ? d.recurring : [],
     accounts: Array.isArray(d.accounts) ? d.accounts : [],
@@ -296,7 +296,10 @@ const catMap = () => Object.fromEntries(db.categories.map((c) => [c.id, c]));
 const MISSING_CAT = { name: 'Kategorisiz', icon: 'lc:circle-help', color: '#5F6B7A' };
 
 // İleri tarihli kayıt: tarihi gelene kadar bakiyeye, toplamlara ve bütçeye girmez
-const isPlanned = (t) => t.date > todayISO();
+// Onay bekleyen kayıt: ileri tarihle eklenmiş ve henüz "geldi/ödendi" denmemiş.
+// Tarihi gelse bile sen onaylayana kadar bakiyeye, toplamlara ve bütçeye girmez.
+const isPlanned = (t) => !!t.awaiting || t.date > todayISO();
+const awaitingDue = () => db.transactions.filter((t) => t.awaiting && !t.feeOf && t.date <= todayISO()).sort((a, b) => (a.date < b.date ? -1 : 1));
 
 function txIn(per) {
   return db.transactions.filter((t) => t.date >= per.start && t.date <= per.end);
@@ -445,7 +448,7 @@ function txRow(t, cm, showDate = false) {
   const c = cm[t.categoryId] || MISSING_CAT;
   const acc = t.accountId ? accById(t.accountId) : null;
   const planned = isPlanned(t);
-  const sub = [planned ? 'Planlı' : '', acc ? acc.name : '', t.recId ? 'düzenli' : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
+  const sub = [planned ? (t.date > todayISO() ? 'Planlı' : 'Onay bekliyor') : '', acc ? acc.name : '', t.recId ? 'düzenli' : '', showDate ? `${fromISO(t.date).getDate()} ${MONTHS_SHORT[fromISO(t.date).getMonth()]}` : '', t.note].filter(Boolean).join(' · ');
   return `<button class="tx${planned ? ' planned' : ''}" data-action="edit-tx" data-id="${t.id}">
     <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
     <span class="tx-main"><b>${esc(c.name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>
@@ -651,7 +654,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -779,6 +782,11 @@ function renderTxForm(focusAmount = false) {
       <label>Not</label>
       <input id="f-note" placeholder="İsteğe bağlı (ör. A101, Ali'ye borç…)" value="${esc(form.note)}" maxlength="200">
     </div>
+    ${form.awaiting ? `<div class="await-box">
+        <b>${form.date > todayISO() ? `Planlı · ${fullDay(form.date)}` : 'Onay bekliyor'}</b>
+        <small>${form.type === 'income' ? 'Geldiğinde' : 'Ödendiğinde'} onayla; o zamana kadar bakiyeye eklenmez. Tutar ya da hesap farklıysa önce düzelt.</small>
+        <button class="btn primary block" data-action="save-tx" data-confirm="1">${icon('check', 18)} ${form.type === 'income' ? 'Geldi' : 'Ödendi'}, onayla</button>
+      </div>` : ''}
     ${form.id ? (!form.recId && form.type !== 'transfer' ? `<button class="xfee-add" data-action="tx-to-rec" data-id="${form.id}">${icon('repeat', 18)}&nbsp; Düzenli kayda çevir (her ay tekrarlansın)</button>` : '')
       : `<label class="check"><input type="checkbox" id="f-repeat" ${form.repeat ? 'checked' : ''}><span><b>Her ay tekrarla</b><small>Düzenli ${form.type === 'income' ? 'gelir' : 'gider'} olarak kaydedilir; her ay bu gün "${form.type === 'income' ? 'geldi mi' : 'ödendi mi'}?" diye sorulur.</small></span></label>`}
     <div class="actions">
@@ -812,14 +820,18 @@ function saveAsRecurring(data) {
   toast(`Düzenli kayıt eklendi${next ? ` · sıradaki ${fullDay(next)}` : ''}`);
 }
 
-function saveTx(again) {
+function saveTx(again, confirmNow = false) {
   syncForm();
   const amount = parseAmount(form.amountText);
   if (!(amount > 0)) { $('#f-amount')?.classList.add('invalid'); $('#f-amount')?.focus(); toast('Geçerli bir tutar gir'); return; }
   if (!form.categoryId) { toast('Bir kategori seç'); return; }
   if (!form.date) { toast('Tarih seç'); return; }
   const now = Date.now();
-  const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), accountId: form.accountId || null, updatedAt: now };
+  const today = todayISO();
+  // Onaylanıyorsa ve tarih ileriyse, bugünün tarihiyle kaydedilir
+  if (confirmNow && form.date > today) form.date = today;
+  const awaiting = !confirmNow && (form.date > today || !!form.awaiting);
+  const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), accountId: form.accountId || null, awaiting, updatedAt: now };
   if (!form.id) rememberAccount(form.accountId);
   if (!form.id && $('#f-repeat')?.checked) { saveAsRecurring(data); return; }
   const budgetBefore = budgetSnapshot(form.date);
@@ -842,7 +854,9 @@ function saveTx(again) {
   } else {
     closeSheet();
   }
-  if (warnings.length) alertToast(warnings);
+  if (warnings.length && !awaiting) alertToast(warnings);
+  else if (confirmNow) toast(`${data.type === 'income' ? 'Geldi' : 'Ödendi'} olarak onaylandı`);
+  else if (awaiting) toast(`Planlandı · ${fullDay(data.date)} günü onayın istenecek`);
   else toast(wasEdit ? 'Güncellendi' : 'Kaydedildi');
 }
 
@@ -1038,7 +1052,7 @@ const actions = {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
     if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
     if (t?.type === 'transfer') openTransfer({ id: t.id });
-    else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '', recId: t.recId || null });
+    else if (t) openTxForm({ id: t.id, type: t.type, amountText: amountToInput(t.amount), categoryId: t.categoryId, date: t.date, note: t.note || '', accountId: t.accountId || '', recId: t.recId || null, awaiting: !!t.awaiting });
   },
   'close-sheet': () => closeSheet(),
 
@@ -1079,7 +1093,7 @@ const actions = {
       renderTxForm();
     });
   },
-  'save-tx': (el) => saveTx(!!el.dataset.again),
+  'save-tx': (el) => saveTx(!!el.dataset.again, !!el.dataset.confirm),
   'delete-tx': (el) => deleteTx(el.dataset.id),
 
   'new-cat': () => openCatForm({ type: ui.catTab }),
