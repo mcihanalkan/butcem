@@ -736,7 +736,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -782,6 +782,7 @@ function openSheet(html) {
   root.classList.add('open');
   document.body.style.overflow = 'hidden';
   if (!sheetOpen) { history.pushState({ sheet: true }, ''); sheetOpen = true; }
+  if (typeof refreshFee === 'function') refreshFee();
   return $('.sheet', root);
 }
 function hideSheet() {
@@ -814,6 +815,7 @@ let form = null;
 
 function openTxForm(init = {}) {
   form = { id: null, type: 'expense', amountText: '', categoryId: null, date: todayISO(), note: '', accountId: init.id ? '' : lastAccountId(), ...init };
+  feeReset(form.id);
   renderTxForm(!form.id);
 }
 
@@ -850,6 +852,7 @@ function renderTxForm(focusAmount = false) {
       <small class="acc-info" id="f-learn"></small>
     </div>
     ${accountPicker(form.accountId, form.type)}
+    ${feeSlot()}
     <div class="field">
       <label>Kategori</label>
       <div class="cat-grid">
@@ -882,7 +885,7 @@ function renderTxForm(focusAmount = false) {
 }
 
 // "Her ay tekrarla": düzenli kayıt oluşturur. Tarih bugün ya da geçmişteyse ilk sefer "geldi/ödendi" olarak da kaydedilir.
-function saveAsRecurring(data) {
+function saveAsRecurring(data, fv) {
   const now = Date.now();
   const id = uid();
   const rec = {
@@ -896,6 +899,7 @@ function saveAsRecurring(data) {
     const txId = uid();
     db.transactions.push({ id: txId, createdAt: now, ...data, recId: id, recDate: data.date });
     touch('tx', txId);
+    if (fv) applyFee(txId, fv, `Masraf · ${rec.name}`);
   }
   save();
   closeSheet();
@@ -910,6 +914,8 @@ function saveTx(again, confirmNow = false) {
   if (!(amount > 0)) { $('#f-amount')?.classList.add('invalid'); $('#f-amount')?.focus(); toast('Geçerli bir tutar gir'); return; }
   if (!form.categoryId) { toast('Bir kategori seç'); return; }
   if (!form.date) { toast('Tarih seç'); return; }
+  const fv = feeValue();
+  if (!fv.ok) { feeAsk(fv); return; }
   const now = Date.now();
   const today = todayISO();
   // Onaylanıyorsa ve tarih ileriyse, bugünün tarihiyle kaydedilir
@@ -917,23 +923,27 @@ function saveTx(again, confirmNow = false) {
   const awaiting = !confirmNow && (form.date > today || !!form.awaiting);
   const data = { type: form.type, amount, categoryId: form.categoryId, date: form.date, note: form.note.trim(), accountId: form.accountId || null, awaiting, updatedAt: now };
   if (!form.id) rememberAccount(form.accountId);
-  if (!form.id && $('#f-repeat')?.checked) { saveAsRecurring(data); return; }
+  if (!form.id && $('#f-repeat')?.checked) { saveAsRecurring(data, fv); return; }
+  const feeLabel = `Masraf · ${data.note || (catMap()[data.categoryId] || MISSING_CAT).name}`;
   const budgetBefore = budgetSnapshot(form.date);
   if (form.id) {
     const tx = db.transactions.find((x) => x.id === form.id);
     if (tx) Object.assign(tx, data);
     touch('tx', form.id);
+    applyFee(form.id, fv, feeLabel);
   } else {
     const id = uid();
     db.transactions.push({ id, createdAt: now, ...data });
     touch('tx', id);
+    applyFee(id, fv, feeLabel);
   }
   save();
   render();
   const wasEdit = !!form.id;
   const warnings = data.type === 'expense' ? budgetWarningsAfterSave(budgetBefore, data) : [];
   if (again) {
-    form = { id: null, type: form.type, amountText: '', categoryId: null, date: form.date, note: '' };
+    form = { id: null, type: form.type, amountText: '', categoryId: null, date: form.date, note: '', accountId: form.accountId };
+    feeReset();
     renderTxForm(true);
   } else {
     closeSheet();
@@ -942,7 +952,7 @@ function saveTx(again, confirmNow = false) {
   if (warnings.length && !awaiting) alertToast(warnings);
   else if (confirmNow) toast(`${data.type === 'income' ? 'Geldi' : 'Ödendi'} olarak onaylandı`);
   else if (awaiting) toast(`Planlandı · ${fullDay(data.date)} günü onayın istenecek`);
-  else toast(wasEdit ? 'Güncellendi' : 'Kaydedildi');
+  else toast(wasEdit ? 'Güncellendi' : `Kaydedildi${fv.fee ? ` · ${money(fv.fee)} masraf` : ''}`);
 }
 
 function deleteTx(id) {

@@ -305,6 +305,7 @@ function openTransfer(init = {}) {
       });
     }
   }
+  feeReset(init.id || null);
   if (!xfer.toId) xfer.picking = 'to';
   renderTransfer();
 }
@@ -312,7 +313,8 @@ function openTransfer(init = {}) {
 // Girilen değerlerden: karşıya geçen, komisyon, kaynaktan toplam çıkan
 function xferCalc() {
   const sent = parseAmount(xfer.sentText);
-  const fee = xfer.feeText.trim() ? parseAmount(xfer.feeText) : 0;
+  const fv = feeValue({ accId: xfer.fromId, kind: 'move' });
+  const fee = fv.ok ? fv.fee : 0;
   const ok = sent > 0 && fee >= 0 && !(xfer.feeMode === 'deduct' && fee >= sent);
   const received = xfer.feeMode === 'deduct' ? sent - fee : sent;
   const out = xfer.feeMode === 'deduct' ? sent : sent + fee;
@@ -397,7 +399,6 @@ function renderTransfer() {
   const f = xfer;
   const to = accById(f.toId);
   const s = to?.kind === 'credit' ? cardStatus(to) : null;
-  const feeOpen = f.showFee || !!f.feeText.trim();
   openSheet(`
     <div class="sheet-head"><h2>${s ? 'Kart ödemesi' : 'Para gönder'}</h2><button class="close" data-action="close-sheet" aria-label="Kapat">${icon('x', 18)}</button></div>
 
@@ -419,16 +420,7 @@ function renderTransfer() {
       <button data-action="x-amt" data-val="${s.debt}"><small>Tüm borç</small>${money(s.debt)}</button>
     </div>` : ''}
 
-    ${feeOpen ? `<div class="xfee">
-      <div class="between"><span class="lbl" style="margin:0">Komisyon / masraf</span><button class="link small" data-action="x-fee-off">Kaldır</button></div>
-      <div class="row" style="align-items:center;margin-top:6px">
-        <div class="xfee-in"><input id="x-fee" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.feeText)}" data-input="x-calc"><span>${esc(db.settings.currency)}</span></div>
-        <div class="seg" style="flex:1.5">
-          <button data-action="x-mode" data-val="extra" class="${f.feeMode === 'extra' ? 'on' : ''}">Ayrıca</button>
-          <button data-action="x-mode" data-val="deduct" class="${f.feeMode === 'deduct' ? 'on' : ''}">Tutardan</button>
-        </div>
-      </div>
-    </div>` : `<button class="xfee-add" data-action="x-fee-on">＋ Komisyon / masraf ekle</button>`}
+    ${feeSlot()}
 
     <div id="x-preview">${transferPreview()}</div>
 
@@ -460,13 +452,15 @@ function saveTransfer(confirmNow = false) {
   if (!f.toId) { toast('Paranın gideceği hesabı seç'); return; }
   if (f.fromId === f.toId) { toast('Aynı hesaba transfer olmaz'); return; }
   if (!(c.sent > 0)) { $('#x-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
-  if (!c.ok) { $('#x-fee').classList.add('invalid'); toast('Komisyon tutarını kontrol et'); return; }
+  const fv = feeValue({ accId: f.fromId, kind: 'move' });
+  if (!fv.ok) { feeAsk(fv); return; }
+  if (!c.ok) { $('#fee-amt')?.classList.add('invalid'); toast('Masraf, gönderilen tutardan büyük olamaz'); return; }
   const now = Date.now();
   const today = todayISO();
   let date = f.date || today;
   if (confirmNow && date > today) date = today;
   const awaiting = !confirmNow && (date > today || !!f.awaiting);
-  const data = { type: 'transfer', amount: c.received, fromId: f.fromId || null, toId: f.toId, date, note: f.note.trim(), feeMode: f.feeMode, categoryId: null, awaiting, updatedAt: now };
+  const data = { type: 'transfer', amount: c.received, fromId: f.fromId || null, toId: f.toId, date, note: f.note.trim(), feeMode: f.feeMode, categoryId: null, awaiting, updatedAt: now, ...(fv.asked ? { feeAmt: c.fee } : {}) };
   let id = f.id;
   if (id) Object.assign(db.transactions.find((t) => t.id === id), data);
   else { id = uid(); db.transactions.push({ id, createdAt: now, ...data }); }
@@ -549,7 +543,7 @@ Object.assign(actions, {
   'af-delete': () => deleteAcc(),
   'xfer-new': (el) => openTransfer({ toId: el.dataset.to || '', fromId: el.dataset.from || '' }),
   'x-amt': (el) => { $('#x-amount').value = amountToInput(Number(el.dataset.val)); refreshTransfer(); },
-  'x-mode': (el) => { xfer.feeMode = el.dataset.val; $$('[data-action="x-mode"]').forEach((b) => b.classList.toggle('on', b === el)); refreshTransfer(); },
+  'x-mode': (el) => { xfer.feeMode = el.dataset.val; $$('[data-action="x-mode"]').forEach((b) => b.classList.toggle('on', b === el)); refreshTransfer(); refreshFee(); },
   'x-pick': (el) => { syncTransfer(); xfer.picking = xfer.picking === el.dataset.role ? null : el.dataset.role; renderTransfer(); },
   'x-choose': (el) => {
     syncTransfer();
@@ -558,8 +552,6 @@ Object.assign(actions, {
     renderTransfer();
   },
   'x-swap': () => { syncTransfer(); [xfer.fromId, xfer.toId] = [xfer.toId, xfer.fromId]; xfer.picking = null; renderTransfer(); },
-  'x-fee-on': () => { syncTransfer(); xfer.showFee = true; renderTransfer(); setTimeout(() => $('#x-fee')?.focus(), 50); },
-  'x-fee-off': () => { syncTransfer(); xfer.showFee = false; xfer.feeText = ''; renderTransfer(); },
   'x-save': () => saveTransfer(),
   'x-confirm': () => saveTransfer(true),
   'form-acc': (el) => { form.accountId = pickAccount(el); form.accTouched = true; },

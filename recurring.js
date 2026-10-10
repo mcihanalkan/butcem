@@ -251,6 +251,7 @@ function openConfirm(recId, due) {
   const inc = rec.type === 'income';
   const today = todayISO();
   recConfirm = { recId, due, accountId: accById(rec.accountId) ? rec.accountId : lastAccountId() };
+  feeReset();
   const c = recCat(rec);
 
   if (st.state === 'done') {
@@ -279,6 +280,7 @@ function openConfirm(recId, due) {
       <div class="amount-field"><input id="rc-amount" inputmode="decimal" autocomplete="off" value="${amountToInput(rec.amount)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
     ${accountPicker(recConfirm.accountId, rec.type, 'rc-acc')}
+    ${feeSlot()}
     <div class="field"><label>Tarih</label>
       <input type="date" id="rc-date" value="${defDate}">
       <div class="chips"><button class="chip" data-action="rc-date" data-val="${due}">Vade günü</button><button class="chip" data-action="rc-date" data-val="${today}">Bugün</button></div>
@@ -298,6 +300,8 @@ function confirmOccurrence() {
   const date = $('#rc-date').value;
   if (!(amount > 0)) { $('#rc-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
   if (!date) { toast('Tarih seç'); return; }
+  const fv = feeValue();
+  if (!fv.ok) { feeAsk(fv); return; }
   const now = Date.now();
   const before = budgetSnapshot(date);
   const accountId = recConfirm.accountId || null;
@@ -306,6 +310,7 @@ function confirmOccurrence() {
   if ((rec.accountId || null) !== accountId) { rec.accountId = accountId; rec.updatedAt = now; touch('rec', rec.id); }
   db.transactions.push(tx);
   touch('tx', tx.id);
+  applyFee(tx.id, fv, `Masraf · ${recName(rec)}`);
   if ($('#rc-update').checked && amount !== rec.amount) { rec.amount = amount; rec.updatedAt = now; touch('rec', rec.id); }
   save();
   closeSheet();

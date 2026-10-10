@@ -164,6 +164,8 @@ let debtForm = null;
 
 function openDebtForm(init = {}) {
   debtForm = { id: null, dir: 'borrowed', person: '', amountText: '', date: todayISO(), dueDate: '', accountId: '', note: '', ...init };
+  const pr = init.id ? db.transactions.find((t) => t.type === 'debt' && t.debtId === init.id && t.role === 'principal') : null;
+  feeReset(pr ? pr.id : null);
   renderDebtForm();
 }
 
@@ -191,6 +193,7 @@ function renderDebtForm() {
       <div class="amount-field"><input id="d-amount" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.amountText)}"><span>${esc(db.settings.currency)}</span></div>
     </div>
     ${accountPicker(f.accountId, borrowed ? 'income' : 'expense', 'df-acc').replace(borrowed ? 'Nereye geldi?' : 'Nereden ödendi?', borrowed ? 'Para hangi hesaba girdi?' : 'Para hangi hesaptan çıktı?').replace('>Hiçbiri<', '>Hesaba yansıtma (eski borç)<')}
+    ${feeSlot()}
     <div class="row field">
       <div><label class="lbl">Tarih</label><input type="date" id="d-date" value="${f.date}"></div>
       <div><label class="lbl">Vade (son gün)</label><input type="date" id="d-due" value="${f.dueDate || ''}"></div>
@@ -217,6 +220,8 @@ function saveDebt() {
   if (!f.person.trim()) { toast(f.dir === 'borrowed' ? 'Kimden aldığını yaz' : 'Kime verdiğini yaz'); $('#d-person').focus(); return; }
   if (!(amount > 0)) { $('#d-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
   if (f.dueDate && f.dueDate < f.date) { toast('Vade, tarihten önce olamaz'); return; }
+  const fv = feeValue();
+  if (!fv.ok) { feeAsk(fv); return; }
   const now = Date.now();
   const data = { dir: f.dir, person: f.person.trim(), amount, date: f.date || todayISO(), dueDate: f.dueDate || null, accountId: f.accountId || null, note: f.note.trim(), updatedAt: now };
   let id = f.id;
@@ -228,9 +233,12 @@ function saveDebt() {
   const principal = db.transactions.find((t) => t.type === 'debt' && t.debtId === id && t.role === 'principal');
   if (data.accountId) {
     const pd = { type: 'debt', debtId: id, role: 'principal', flow: data.dir === 'borrowed' ? 'in' : 'out', amount, accountId: data.accountId, date: data.date, note: data.person, categoryId: null, awaiting: data.date > todayISO(), updatedAt: now };
+    let pid = principal?.id;
     if (principal) { Object.assign(principal, pd); touch('tx', principal.id); }
-    else { const tid = uid(); db.transactions.push({ id: tid, createdAt: now, ...pd }); touch('tx', tid); }
+    else { pid = uid(); db.transactions.push({ id: pid, createdAt: now, ...pd }); touch('tx', pid); }
+    applyFee(pid, fv, `Masraf · ${data.person} (borç verildi)`);
   } else if (principal) {
+    dropFees([principal.id]);
     db.transactions = db.transactions.filter((t) => t.id !== principal.id);
     db.deleted.push({ id: principal.id, kind: 'tx', at: now, data: principal });
     touch('tx', principal.id);
@@ -247,6 +255,7 @@ function deleteDebt() {
   const d = debtById(debtForm.id);
   if (!d || !confirm(`${d.person} ile ilgili kayıt ve tüm hareketleri silinsin mi?`)) return;
   const now = Date.now();
+  dropFees(debtTxs(d).map((t) => t.id));
   for (const t of debtTxs(d)) { db.deleted.push({ id: t.id, kind: 'tx', at: now, data: t }); touch('tx', t.id); }
   db.transactions = db.transactions.filter((t) => !(t.type === 'debt' && t.debtId === d.id));
   db.debts = db.debts.filter((x) => x.id !== d.id);
@@ -271,6 +280,7 @@ function openPay(debtId, txId = null) {
     amountText: t ? amountToInput(t.amount) : '', date: t?.date || todayISO(), note: t?.note || '',
     accountId: t ? t.accountId || '' : accById(d.accountId) ? d.accountId : lastAccountId(),
   };
+  feeReset(payForm.id);
   renderPay();
 }
 
@@ -292,6 +302,7 @@ function renderPay() {
       </div>
     </div>
     ${accountPicker(f.accountId, borrowed ? 'expense' : 'income', 'p-acc').replace(/Nereye geldi\?|Nereden ödendi\?/, borrowed ? 'Hangi hesaptan ödedin?' : 'Para hangi hesaba girdi?')}
+    ${feeSlot()}
     <div class="row field">
       <div><label class="lbl">Tarih</label><input type="date" id="p-date" value="${f.date}"></div>
       <div><label class="lbl">Not</label><input id="p-note" value="${esc(f.note)}" maxlength="80" placeholder="İsteğe bağlı"></div>
@@ -315,12 +326,15 @@ function savePay(confirmNow = false) {
   const s = debtStatus(d);
   const prev = f.id ? db.transactions.find((x) => x.id === f.id)?.amount || 0 : 0;
   if (amount > s.remaining + prev) { toast(`Kalan tutardan fazla olamaz (${money(s.remaining + prev)})`); return; }
+  const fv = feeValue();
+  if (!fv.ok) { feeAsk(fv); return; }
   const now = Date.now();
   const data = { type: 'debt', debtId: d.id, role: 'repay', flow: isBorrowed(d) ? 'out' : 'in', amount, accountId: f.accountId || null, date, note: $('#p-note').value.trim(), categoryId: null, awaiting: !confirmNow && date > todayISO(), updatedAt: now };
   let id = f.id;
   if (id) Object.assign(db.transactions.find((x) => x.id === id), data);
   else { id = uid(); db.transactions.push({ id, createdAt: now, ...data }); }
   touch('tx', id);
+  applyFee(id, fv, `Masraf · ${d.person} ${isBorrowed(d) ? 'borç ödemesi' : 'tahsilat'}`);
   save();
   render();
   const after = debtStatus(d);
@@ -332,6 +346,7 @@ function deletePay() {
   const f = payForm;
   if (!f.id || !confirm('Bu hareket silinsin mi?')) return;
   const t = db.transactions.find((x) => x.id === f.id);
+  dropFees([f.id]);
   db.transactions = db.transactions.filter((x) => x.id !== f.id);
   db.deleted.push({ id: f.id, kind: 'tx', at: Date.now(), data: t });
   touch('tx', f.id);

@@ -13,6 +13,7 @@ VERSIONED_FILES = [
     'recurring.js',
     'debts.js',
     'accounts.js',
+    'fees.js',
     'ai.js',
     'scan.js',
     'smart.js',

@@ -230,6 +230,7 @@ let goalPay = null;
 function openGoalPay(goalId, role, txId = null) {
   const t = txId ? db.transactions.find((x) => x.id === txId) : null;
   goalPay = { goalId, role: t?.role || role, id: t?.id || null, amountText: t ? amountToInput(t.amount) : '', date: t?.date || todayISO(), note: t?.note || '', accountId: t ? t.accountId || '' : lastAccountId() };
+  feeReset(goalPay.id);
   renderGoalPay();
 }
 
@@ -250,6 +251,7 @@ function renderGoalPay() {
       </div>
     </div>
     ${accountPicker(f.accountId, save ? 'expense' : 'income', 'gp-acc').replace(/Nereye geldi\?|Nereden ödendi\?/, save ? 'Hangi hesaptan ayırdın?' : 'Hangi hesaba aktardın?').replace('>Hiçbiri<', '>Hesaba yansıtma<')}
+    ${feeSlot()}
     <div class="row field">
       <div><label class="lbl">Tarih</label><input type="date" id="gp-date" value="${f.date}"></div>
       <div><label class="lbl">Not</label><input id="gp-note" value="${esc(f.note)}" maxlength="80" placeholder="İsteğe bağlı"></div>
@@ -268,6 +270,8 @@ function saveGoalPay(confirmNow = false) {
   const g = goalById(f.goalId);
   const amount = parseAmount($('#gp-amount').value);
   if (!(amount > 0)) { $('#gp-amount').classList.add('invalid'); toast('Geçerli bir tutar gir'); return; }
+  const fv = feeValue();
+  if (!fv.ok) { feeAsk(fv); return; }
   const before = goalStatus(g);
   let date = $('#gp-date').value || todayISO();
   if (confirmNow && date > todayISO()) date = todayISO();
@@ -277,6 +281,7 @@ function saveGoalPay(confirmNow = false) {
   if (id) Object.assign(db.transactions.find((x) => x.id === id), data);
   else { id = uid(); db.transactions.push({ id, createdAt: now, ...data }); }
   touch('tx', id);
+  applyFee(id, fv, `Masraf · ${g.name} birikimi`);
   save();
   render();
   const after = goalStatus(g);
@@ -288,6 +293,7 @@ function deleteGoalPay() {
   const f = goalPay;
   if (!f.id || !confirm('Bu hareket silinsin mi?')) return;
   const t = db.transactions.find((x) => x.id === f.id);
+  dropFees([f.id]);
   db.transactions = db.transactions.filter((x) => x.id !== f.id);
   db.deleted.push({ id: f.id, kind: 'tx', at: Date.now(), data: t });
   touch('tx', f.id);
