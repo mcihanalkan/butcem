@@ -68,6 +68,9 @@ function forecast(withVar = ui.fcVar) {
     }
   }
 
+  // 4b) Özel günlerin hediye bütçeleri
+  for (const g of eventForecast(per.end)) add(g.date, -g.amount, g.title, 'expense', 'lc:gift');
+
   // 5) Günlük harcama ortalaması (son 90 gün, düzenli ve sabit giderler hariç)
   const from = toISO(addDays(fromISO(today), -90));
   const first = db.transactions.reduce((m, t) => (t.date < m ? t.date : m), today);

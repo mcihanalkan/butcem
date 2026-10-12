@@ -79,6 +79,15 @@ function cardStatus(a, txs) {
   return { due, remaining, minDue };
 }
 
+/* ------------------------------ özel günler ------------------------------ */
+function nthSunday(y, m, n) { const d = new Date(y, m, 1); return toISO(new Date(y, m, ((7 - d.getDay()) % 7) + 1 + (n - 1) * 7)); }
+function eventDateIn(e, y) {
+  if (e.rule === 'mothers') return nthSunday(y, 4, 2);
+  if (e.rule === 'fathers') return nthSunday(y, 5, 3);
+  return toISO(new Date(y, e.month - 1, Math.min(e.day, new Date(y, e.month, 0).getDate())));
+}
+function nextEventDate(e) { const y = fromISO(TODAY).getFullYear(); const d = eventDateIn(e, y); return d >= TODAY ? d : eventDateIn(e, y + 1); }
+
 /* ------------------------------ hatırlatmalar ------------------------------ */
 export function remindersFor(data) {
   const { tx, rec, acc, debt, cats } = data;
@@ -124,6 +133,24 @@ export function remindersFor(data) {
     const kind = d.dir === 'borrowed' ? 'Borç' : 'Alacak';
     if (d.dueDate === TODAY) items.push({ pri: 0, title: `${kind} vadesi bugün · ${d.person}`, body: `Kalan ${money(remaining)}` });
     else if (isMorning && d.dueDate === plus(3)) items.push({ pri: 2, title: `${kind} vadesine 3 gün · ${d.person}`, body: `${shortDay(d.dueDate)} · kalan ${money(remaining)}` });
+  }
+  // Belge / garanti bitişleri (sabah: hatırlatma günü, 7 gün, 1 gün kala ve o gün)
+  for (const v of data.vault || []) {
+    if (!isMorning || !v.expiry || v.ackFor === v.expiry) continue;
+    const left = dayDiff(fromISO(TODAY), fromISO(v.expiry));
+    const at = [v.remind || 30, 7, 1, 0];
+    if (!at.includes(left)) continue;
+    items.push({ pri: left <= 1 ? 0 : 2, title: left === 0 ? `${v.title} bugün bitiyor` : `${v.title} ${left} gün sonra bitiyor`, body: `Bitiş ${shortDay(v.expiry)}${v.place ? ` · ${v.place}` : ''}` });
+  }
+  // Özel günler (sabah: hatırlatma günü, 1 gün kala ve o gün)
+  for (const e of data.events || []) {
+    if (!isMorning) continue;
+    const date = nextEventDate(e);
+    if (e.ackFor === date || (e.gifts || []).some((g) => g.forDate === date)) continue;
+    const left = dayDiff(fromISO(TODAY), fromISO(date));
+    if (![e.remind || 7, 1, 0].includes(left)) continue;
+    const name = e.title || (e.kind === 'birthday' ? `${e.person} doğum günü` : e.kind === 'anniversary' ? `${e.person} yıldönümü` : e.person || 'Özel gün');
+    items.push({ pri: left === 0 ? 0 : 1, title: left === 0 ? `Bugün: ${name}` : left === 1 ? `Yarın: ${name}` : `${name} ${left} gün sonra`, body: e.budget ? `Hediye bütçesi ${money(e.budget)}` : shortDay(date) });
   }
   // Ücretsiz deneme bitişi (sabah: 2 gün kala ve o gün)
   for (const r of rec) {

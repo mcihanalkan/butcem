@@ -83,6 +83,8 @@ function freshData() {
     debts: [], // borç/alacak: [{ id, dir: 'borrowed' | 'lent', person, amount, date, dueDate, accountId, note, closed }]
     accounts: [], // kartlar ve hesaplar: [{ id, kind: 'credit' | 'bank' | 'cash', name, bank, limit, opening, statementDay, dueDay, minPct }]
     recurring: [], // düzenli gelir/gider tanımları: [{ id, type, name, amount, categoryId, day, startDate, endDate, variable, paused, skipped: [] }]
+    vault: [], // belge ve garantiler: [{ id, kind, title, start, expiry, remind, place, amount, note, txId }]
+    events: [], // özel günler: [{ id, kind, person, title, month, day, year, rule, budget, remind, gifts: [] }]
     budgets: [], // aylık limitler: [{ id, scope: 'total' | 'cat', categoryId, amount, alertAt, rollover }]
     deleted: [], // silinen kayıtların izi: [{ id, kind: 'tx' | 'cat' | 'bud', at, data }]
     pending: {}, // buluta gönderilmeyi bekleyen değişiklikler: { 'tx:<id>': zaman }
@@ -103,6 +105,8 @@ function normalize(d) {
     accounts: Array.isArray(d.accounts) ? d.accounts : [],
     debts: Array.isArray(d.debts) ? d.debts : [],
     goals: Array.isArray(d.goals) ? d.goals : [],
+    vault: Array.isArray(d.vault) ? d.vault : [],
+    events: Array.isArray(d.events) ? d.events : [],
     budgets: Array.isArray(d.budgets) ? d.budgets : [],
     pending: d.pending && typeof d.pending === 'object' ? d.pending : {},
     sync: d.sync || null,
@@ -150,7 +154,7 @@ function setSetting(key, value) {
 function mergeBackup(backup) {
   const now = Date.now();
   let added = 0;
-  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts], ['debt', backup.debts, db.debts], ['goal', backup.goals, db.goals]]) {
+  for (const [kind, list, arr] of [['cat', backup.categories, db.categories], ['tx', backup.transactions, db.transactions], ['bud', backup.budgets, db.budgets], ['rec', backup.recurring, db.recurring], ['acc', backup.accounts, db.accounts], ['debt', backup.debts, db.debts], ['goal', backup.goals, db.goals], ['vault', backup.vault, db.vault], ['event', backup.events, db.events]]) {
     const have = new Set(arr.map((x) => x.id));
     for (const item of list) {
       if (!item || !item.id || have.has(item.id)) continue;
@@ -188,13 +192,16 @@ function saveUi() {
 const nf = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nf1 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
 const nf0 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 });
-const money = (k) => `${nf.format(k / 100)} ${db.settings.currency}`;
-const num = (k) => nf.format(k / 100);
+// Tutarları gizle (göz simgesi): yalnızca bu cihazda, ekranda *** gösterir
+const HIDE = { on: (() => { try { return localStorage.getItem('butce.hide') === '1'; } catch { return false; } })() };
+const money = (k) => (HIDE.on ? `••••• ${db.settings.currency}` : `${nf.format(k / 100)} ${db.settings.currency}`);
+const num = (k) => (HIDE.on ? '•••••' : nf.format(k / 100));
 // Tutarlar her yerde kuruşuyla tam gösterilir (yuvarlama yok)
 const moneyRound = (k) => money(k);
 const signed = (k, type) => `${type === 'income' ? '+' : '−'}${money(k)}`;
 // Grafik eksenleri için kısa yazım: 12,5 bin / 1,2 Mn
 function compact(k) {
+  if (HIDE.on) return '•••';
   const v = k / 100, a = Math.abs(v);
   if (a >= 1e6) return `${nf1.format(v / 1e6)} Mn`;
   if (a >= 1e3) return `${nf1.format(v / 1e3)} bin`;
@@ -737,7 +744,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -814,6 +821,8 @@ function goTo(view) {
 /* ---------------------------- işlem formu ---------------------------- */
 
 let form = null;
+// Yeni işlem kaydedilince çağrılır: (id, form, data)
+const TX_HOOKS = [];
 
 function openTxForm(init = {}) {
   form = { id: null, type: 'expense', amountText: '', categoryId: null, date: todayISO(), note: '', accountId: init.id ? '' : lastAccountId(), ...init };
@@ -876,6 +885,7 @@ function renderTxForm(focusAmount = false) {
         <small>${form.type === 'income' ? 'Geldiğinde' : 'Ödendiğinde'} onayla; o zamana kadar bakiyeye eklenmez. Tutar ya da hesap farklıysa önce düzelt.</small>
         <button class="btn primary block" data-action="save-tx" data-confirm="1">${icon('check', 18)} ${form.type === 'income' ? 'Geldi' : 'Ödendi'}, onayla</button>
       </div>` : ''}
+    ${form.id && form.type === 'expense' ? `<button class="xfee-add" data-action="tx-warranty" data-id="${form.id}">${icon('shield-check', 18)}&nbsp; Garanti kaydı ekle</button>` : ''}
     ${form.id ? (!form.recId && form.type !== 'transfer' ? `<button class="xfee-add" data-action="tx-to-rec" data-id="${form.id}">${icon('repeat', 18)}&nbsp; Düzenli kayda çevir (her ay tekrarlansın)</button>` : '')
       : `<label class="check"><input type="checkbox" id="f-repeat" ${form.repeat ? 'checked' : ''}><span><b>Her ay tekrarla</b><small>Düzenli ${form.type === 'income' ? 'gelir' : 'gider'} olarak kaydedilir; her ay bu gün "${form.type === 'income' ? 'geldi mi' : 'ödendi mi'}?" diye sorulur.</small></span></label>`}
     <div class="actions">
@@ -938,6 +948,7 @@ function saveTx(again, confirmNow = false) {
     db.transactions.push({ id, createdAt: now, ...data });
     touch('tx', id);
     applyFee(id, fv, feeLabel);
+    for (const h of TX_HOOKS) try { h(id, form, data); } catch (e) { console.error(e); }
   }
   save();
   render();
@@ -1414,7 +1425,7 @@ async function initSync() {
   }
 }
 
-const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts, debt: db.debts, goal: db.goals })[kind];
+const arrFor = (kind) => ({ tx: db.transactions, cat: db.categories, bud: db.budgets, rec: db.recurring, acc: db.accounts, debt: db.debts, goal: db.goals, vault: db.vault, event: db.events })[kind];
 const userCol = (name) => sync.fb.fs.collection(sync.fs, 'users', sync.user.uid, name);
 const userDoc = (kind, id) => kind === 'set'
   ? sync.fb.fs.doc(sync.fs, 'users', sync.user.uid, 'meta', 'settings')
@@ -1433,10 +1444,11 @@ function startListening() {
   if (firstTime) db.sync = { uid, lastSrv: 0 };
   const since = fs.Timestamp.fromMillis(db.sync.lastSrv || 0);
   const remoteTimes = {};
-  let waiting = 8;
+  const SYNC_COLS = [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['debt', 'debt'], ['goal', 'goal'], ['vault', 'vault'], ['event', 'event'], ['meta', 'set']];
+  let waiting = SYNC_COLS.length;
   setSyncState('syncing');
 
-  for (const [name, kind] of [['tx', 'tx'], ['cat', 'cat'], ['bud', 'bud'], ['rec', 'rec'], ['acc', 'acc'], ['debt', 'debt'], ['goal', 'goal'], ['meta', 'set']]) {
+  for (const [name, kind] of SYNC_COLS) {
     let first = true;
     const q = fs.query(userCol(name), fs.where('srv', '>', since));
     const unsub = fs.onSnapshot(q, (snap) => {
@@ -1502,6 +1514,8 @@ function reconcileLocal(remoteTimes) {
   for (const a of db.accounts) if ((a.updatedAt || 0) > rt(`acc:${a.id}`)) touch('acc', a.id);
   for (const x of db.debts) if ((x.updatedAt || 0) > rt(`debt:${x.id}`)) touch('debt', x.id);
   for (const x of db.goals) if ((x.updatedAt || 0) > rt(`goal:${x.id}`)) touch('goal', x.id);
+  for (const x of db.vault) if ((x.updatedAt || 0) > rt(`vault:${x.id}`)) touch('vault', x.id);
+  for (const x of db.events) if ((x.updatedAt || 0) > rt(`event:${x.id}`)) touch('event', x.id);
   for (const d of db.deleted) if (d.at > rt(`${d.kind}:${d.id}`)) touch(d.kind, d.id);
   if ((db.settings.updatedAt || 0) > rt('set:main')) touch('set', 'main');
 }

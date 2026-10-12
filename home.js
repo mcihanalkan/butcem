@@ -63,6 +63,8 @@ function todoItems() {
     </div>`);
   }
   out.push(...trialTodos());
+  out.push(...eventTodos());
+  out.push(...vaultTodos());
   const rt = reconTodo();
   if (rt) out.push(rt);
   const dt = driveTodo();
@@ -86,7 +88,7 @@ function viewHome() {
   const list = txIn(per);
   const t = totals(list);
   const cm = catMap();
-  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="chat-open" aria-label="Asistan">${icon('message-circle', 20)}</button><button class="icon-btn" data-action="nav" data-view="settings" aria-label="Ayarlar">${icon('settings', 20)}</button>`);
+  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="chat-open" aria-label="Asistan">${icon('message-circle', 20)}</button><button class="icon-btn" data-action="nav" data-view="more" aria-label="Diğer">${icon('layout-grid', 20)}</button>`);
 
   if (!db.transactions.length) {
     return `${head}
@@ -113,7 +115,7 @@ function viewHome() {
     ${isCurrent ? shortcutBar() : ''}
     ${monthNav(per, 'home')}
     <div class="hero">
-      <small>${isCurrent ? 'Bu ay kalan' : 'Ay sonu kalan'}</small>
+      <small class="hero-lbl">${isCurrent ? 'Bu ay kalan' : 'Ay sonu kalan'} ${eyeButton()}</small>
       <div class="hero-num">${money(t.net)}</div>
       <div class="hero-row">
         <span><i>${icon('arrow-down-left', 15)}</i><span><small>Gelir</small><b>${money(t.inc)}</b></span></span>
@@ -121,7 +123,9 @@ function viewHome() {
       </div>
       ${isCurrent ? budgetMini() : ''}
     </div>
+    ${isCurrent ? storyCard() : ''}
     ${isCurrent ? forecastLine() : ''}
+    ${isCurrent ? streakLine() : ''}
     ${todos.length ? `<h2 class="sec">Yapılacaklar <span class="count">${todos.length}</span></h2><div class="list todos">${todos.join('')}</div>` : ''}
     ${isCurrent ? habitsCard() : ''}
     ${isCurrent && db.transactions.some((x) => !isPlanned(x)) ? `<div style="margin-top:12px">${aiCard()}</div>` : ''}

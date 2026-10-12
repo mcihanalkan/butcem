@@ -21,9 +21,9 @@ for (const userRef of await fdb.collection('users').listDocuments()) {
   const devices = pushSnap.docs.filter((d) => d.data().token && !d.data().disabled);
   if (!devices.length) continue;
   users++;
-  const [tx, rec, acc, debt, cats] = await Promise.all(['tx', 'rec', 'acc', 'debt', 'cat'].map((c) => userRef.collection(c).get().then(live)));
+  const [tx, rec, acc, debt, cats, vault, events] = await Promise.all(['tx', 'rec', 'acc', 'debt', 'cat', 'vault', 'event'].map((c) => userRef.collection(c).get().then(live)));
   const settings = (await userRef.collection('meta').doc('settings').get()).data() || {};
-  const data = { tx, rec, acc, debt, cats };
+  const data = { tx, rec, acc, debt, cats, vault, events };
   const msgs = [];
   const items = remindersFor(data);
   if (items.length) msgs.push({ ...compose(items), tag: `butcem-${MODE}-${TODAY}`, url: './' });

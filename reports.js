@@ -145,12 +145,14 @@ function viewCalendar() {
   const cells = [];
   for (let i = 0; i < lead; i++) cells.push('<span class="cal-cell empty"></span>');
   let noSpend = 0, maxDay = null;
+  const S = spendDays();
   for (let d = start; d <= end; d = addDays(d, 1)) {
     const iso = toISO(d);
     const x = byDay[iso];
-    if (iso <= today && !x?.exp) noSpend++;
+    const free = isNoSpendDay(iso, S);
+    if (free) noSpend++;
     if (x?.exp && (!maxDay || x.exp > byDay[maxDay].exp)) maxDay = iso;
-    cells.push(`<button class="cal-cell l${level(x?.exp)}${iso === today ? ' today' : ''}${iso > today ? ' future' : ''}" data-action="cal-day" data-date="${iso}">
+    cells.push(`<button class="cal-cell l${level(x?.exp)}${iso === today ? ' today' : ''}${iso > today ? ' future' : ''}${free ? ' ns' : ''}" data-action="cal-day" data-date="${iso}">
       <span class="cal-d">${d.getDate()}</span>${x?.exp ? `<span class="cal-v">${esc(compact(x.exp))}</span>` : ''}${x?.inc ? '<i class="cal-inc"></i>' : ''}</button>`);
   }
   const heads = Array.from({ length: 7 }, (_, i) => DAYS_SHORT[(wsd + i) % 7]);
@@ -160,12 +162,13 @@ function viewCalendar() {
     ${monthNav(per, 'cal')}
     <div class="card cal-card">
       <div class="cal-grid">${heads.map((h) => `<span class="cal-h">${h}</span>`).join('')}${cells.join('')}</div>
-      <div class="cal-legend"><span>Az</span>${[1, 2, 3, 4].map((l) => `<i class="l${l}"></i>`).join('')}<span>Çok</span><span class="cal-inc-l"><i class="cal-inc"></i> gelir günü</span></div>
+      <div class="cal-legend"><span>Az</span>${[1, 2, 3, 4].map((l) => `<i class="l${l}"></i>`).join('')}<span>Çok</span><span class="cal-inc-l"><i class="cal-inc"></i> gelir günü</span><span class="cal-inc-l"><i class="cal-ns"></i> harcamasız</span></div>
     </div>
     <div class="card sum-list">
       <div><span>Günlük ortalama gider</span><b>${money(Math.round(t.exp / daysSoFar))}</b></div>
       <div><span>En çok harcanan gün</span><b>${maxDay ? `${fullDay(maxDay)} · ${money(byDay[maxDay].exp)}` : '—'}</b></div>
       <div><span>Harcamasız gün</span><b class="inc">${noSpend} gün</b></div>
+      ${(() => { const s = noSpendStats(); return s ? `<div><span>Şu anki seri · rekor</span><b>${s.streak} gün · ${s.best} gün</b></div>` : ''; })()}
     </div>`;
 }
 
@@ -263,10 +266,10 @@ function viewYear() {
 
 function viewReports() {
   const tab = ui.reportTab;
-  const tabs = [['general', 'Genel'], ['compare', 'Karşılaştır'], ['calendar', 'Takvim'], ['year', 'Yıl']];
+  const tabs = [['general', 'Genel'], ['compare', 'Kıyasla'], ['calendar', 'Takvim'], ['year', 'Yıl'], ['prices', 'Fiyatlar']];
   return `${viewHead('Rapor', `<button class="btn small" data-action="pdf-open">${icon('file-text', 16)} PDF</button>`)}
     <div class="seg tabs">${tabs.map(([k, l]) => `<button data-action="report-tab" data-val="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    ${tab === 'compare' ? viewCompare() : tab === 'calendar' ? viewCalendar() : tab === 'year' ? viewYear() : viewReport()}`;
+    ${tab === 'compare' ? viewCompare() : tab === 'calendar' ? viewCalendar() : tab === 'year' ? viewYear() : tab === 'prices' ? viewPrices() : viewReport()}`;
 }
 
 /* ------------------------------ PDF rapor ------------------------------ */

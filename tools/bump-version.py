@@ -29,6 +29,11 @@ VERSIONED_FILES = [
     'trial.js',
     'habits.js',
     'chat.js',
+    'insight.js',
+    'story.js',
+    'vault.js',
+    'events.js',
+    'more.js',
     'home.js',
     'start.js',
 ]
