@@ -33,6 +33,11 @@ function accBalance(a, until = todayISO()) {
       if (t.accountId === a.id) v += (t.role === 'withdraw' ? 1 : -1) * (credit ? -t.amount : t.amount);
       continue;
     }
+    if (t.type === 'adjust') {
+      // Bakiye eşitleme düzeltmesi: gelir/gider sayılmaz, sadece bakiyeyi değiştirir
+      if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount);
+      continue;
+    }
     if (t.type === 'debt') {
       // Borç hareketi: giren para hesapta bakiyeyi artırır (kartta borcu azaltır), çıkan tersi
       if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount);
@@ -130,6 +135,7 @@ function viewCards() {
   const totalAvail = cs.reduce((x, s) => x + Math.max(0, s.available), 0);
   const cashSum = others.reduce((x, a) => x + accBalance(a), 0);
   return `${head}
+    ${totalDebt > 0 ? debtPlanLink() : ''}
     <div class="card sum-list">
       <div><span>Toplam kart borcu</span><b class="exp">${money(totalDebt)}</b></div>
       <div><span>Kullanılabilir limit</span><b>${money(totalAvail)}</b></div>
@@ -172,6 +178,7 @@ function openAccount(id) {
       <button class="btn" data-action="acc-add-tx" data-id="${a.id}">+ ${credit ? 'Harcama' : 'İşlem'}</button>
       <button class="btn" data-action="acc-edit" data-id="${a.id}">Düzenle</button>
     </div>
+    <button class="btn block recon-btn" data-action="recon-open" data-id="${a.id}">${icon('refresh-cw', 16)} ${credit ? 'Borcu' : 'Bakiyeyi'} eşitle${a.reconAt ? ` <small>· son kontrol ${shortDay(toISO(new Date(a.reconAt)))}</small>` : ''}</button>
     <h3>Son hareketler</h3>
     ${txs.length ? `<div class="list" style="box-shadow:none">${txs.map((t) => txRow(t, cm, true)).join('')}</div>` : '<p class="muted" style="font-size:13px">Bu karta/hesaba bağlı kayıt yok. İşlem eklerken bu kartı seçebilirsin.</p>'}
   `);

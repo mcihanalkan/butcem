@@ -24,6 +24,11 @@ VERSIONED_FILES = [
     'forecast.js',
     'lock.js',
     'drive.js',
+    'recon.js',
+    'debtplan.js',
+    'trial.js',
+    'habits.js',
+    'chat.js',
     'home.js',
     'start.js',
 ]

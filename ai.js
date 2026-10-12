@@ -385,15 +385,7 @@ function renderAiSheet() {
         ` : ''}
         <button class="btn ${r ? '' : 'primary'} block" style="margin-top:12px" data-action="ai-analyze" ${aiState.loading ? 'disabled' : ''}>${aiState.loading ? 'Analiz ediliyor…' : r ? 'Yeniden analiz et' : 'Detaylı analiz yap'}</button>
         ${aiState.error && !aiState.unavailable ? `<p class="exp small">${esc(aiState.error)}</p>` : ''}
-        <h4>Soru sor</h4>
-        <div class="ai-chat">
-          ${aiState.chat.slice(-4).map((c) => `<div class="q">${esc(c.q)}</div><div class="a">${c.a == null ? 'Düşünüyor…' : aiText(c.a)}</div>`).join('')}
-          ${aiState.chat.length ? '' : `<div class="ai-suggest">${['Bu ay nerede fazla harcadım?', 'Kart borcumu nasıl kapatırım?', 'Ayda ne kadar biriktirebilirim?'].map((s) => `<button class="chip" data-action="ai-ask-quick" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`}
-          <form class="ai-ask" data-ai-ask>
-            <input id="ai-q" placeholder="ör. Market harcamamı nasıl azaltırım?" maxlength="300" autocomplete="off" value="${esc(q)}">
-            <button class="btn primary" ${aiState.asking ? 'disabled' : ''}>Sor</button>
-          </form>
-        </div>`}
+        <button class="btn block" style="margin-top:10px" data-action="chat-open-sheet">${icon('message-circle', 18)} Asistana soru sor</button>`}
     </div>
     <p class="muted" style="font-size:11px;margin:14px 0 0">Analizde yalnızca özet rakamlar kullanılır; notların paylaşılmaz. Öneriler bilgilendirme amaçlıdır.</p>
   `);
@@ -408,6 +400,7 @@ Object.assign(actions, {
   'ai-open': () => openAiSheet(),
   'ai-analyze': () => runAnalysis(),
   'ai-ask-quick': (el) => askAi(el.dataset.q),
+  'chat-open-sheet': () => { closeSheet(); setTimeout(() => actions['chat-open'](), 60); },
   'ai-apply': (el) => {
     const x = aiLimits()[Number(el.dataset.i)];
     if (!x) return;

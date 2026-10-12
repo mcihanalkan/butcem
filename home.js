@@ -62,6 +62,9 @@ function todoItems() {
       <button class="btn small" data-action="debt-pay" data-id="${s.d.id}">${borrowed ? 'Öde' : 'Tahsil et'}</button>
     </div>`);
   }
+  out.push(...trialTodos());
+  const rt = reconTodo();
+  if (rt) out.push(rt);
   const dt = driveTodo();
   if (dt) out.push(dt);
   for (const s of budgetAttention().slice(0, 2)) {
@@ -83,7 +86,7 @@ function viewHome() {
   const list = txIn(per);
   const t = totals(list);
   const cm = catMap();
-  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="nav" data-view="settings" aria-label="Ayarlar">${icon('settings', 20)}</button>`);
+  const head = viewHead(`<small class="greet">${greeting()}</small>Özet`, `${syncDot()}<button class="icon-btn" data-action="chat-open" aria-label="Asistan">${icon('message-circle', 20)}</button><button class="icon-btn" data-action="nav" data-view="settings" aria-label="Ayarlar">${icon('settings', 20)}</button>`);
 
   if (!db.transactions.length) {
     return `${head}
@@ -107,6 +110,7 @@ function viewHome() {
 
   return `${head}
     ${quickBar()}
+    ${isCurrent ? shortcutBar() : ''}
     ${monthNav(per, 'home')}
     <div class="hero">
       <small>${isCurrent ? 'Bu ay kalan' : 'Ay sonu kalan'}</small>
@@ -119,6 +123,7 @@ function viewHome() {
     </div>
     ${isCurrent ? forecastLine() : ''}
     ${todos.length ? `<h2 class="sec">Yapılacaklar <span class="count">${todos.length}</span></h2><div class="list todos">${todos.join('')}</div>` : ''}
+    ${isCurrent ? habitsCard() : ''}
     ${isCurrent && db.transactions.some((x) => !isPlanned(x)) ? `<div style="margin-top:12px">${aiCard()}</div>` : ''}
     ${top.length ? `<div class="sec-head"><h2 class="sec">Nereye harcadın?</h2><button class="link" data-action="nav" data-view="report">Rapor ›</button></div>
       <div class="card spend">

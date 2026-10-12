@@ -379,6 +379,7 @@ function syncRecForm() {
   if ($('#r-count')) recForm.countText = v('#r-count');
   recForm.variable = $('#r-var').checked;
   if ($('#r-paused')) recForm.paused = $('#r-paused').checked;
+  if ($('#r-trial')) recForm.trialEnd = $('#r-trial').value;
 }
 
 // Formdaki ayarlardan geçici bir kayıt (önizleme ve kaydetme için)
@@ -451,6 +452,8 @@ function renderRecForm() {
       ${f.endMode === 'count' ? `<input id="r-count" inputmode="numeric" value="${esc(f.countText)}" placeholder="ör. 12 (taksit sayısı)" data-input="rf-refresh" style="margin-top:8px">` : ''}
     </div>
     ${accountPicker(f.accountId, f.type, 'rf-acc')}
+    ${f.type === 'expense' ? `<button type="button" class="check trial-toggle ${f.trial ? 'on' : ''}" data-action="rf-trial"><span class="tbox">${f.trial ? icon('check', 14) : ''}</span><span><b>Ücretsiz deneme süresinde</b><small>Deneme bitmeden 2 gün önce hatırlatılır; ilk ödeme deneme bittiği gün başlar.</small></span></button>
+      ${f.trial ? `<div class="field"><label>Deneme ne zaman bitiyor?</label><input type="date" id="r-trial" value="${f.trialEnd || ''}" min="${todayISO()}"></div>` : ''}` : ''}
     ${editing ? `<label class="check"><input type="checkbox" id="r-paused" ${f.paused ? 'checked' : ''}><span><b>Duraklat</b><small>Bir süreliğine sorma (geçmiş kayıtlar kalır).</small></span></label>` : ''}
     <div class="rec-preview" id="r-preview">${recPreview()}</div>
     <div class="actions">
@@ -469,6 +472,10 @@ function saveRec() {
   if (!f.startDate) { toast('İlk tarihi seç'); return; }
   if (f.endMode === 'date' && !f.endDate) { toast('Bitiş tarihini seç'); return; }
   if (f.endMode === 'count' && !(parseInt(f.countText, 10) > 0)) { toast('Kaç kez olacağını yaz'); return; }
+  const trial = f.type === 'expense' && f.trial;
+  if (trial && !f.trialEnd) { toast('Denemenin bittiği günü seç'); return; }
+  // Denemede: ilk ödeme deneme bittiği gün
+  if (trial) { const te = fromISO(f.trialEnd); f.startDate = f.trialEnd; f.day = te.getDate(); f.weekday = te.getDay(); }
   const r = recFromForm(f);
   if (f.endMode === 'date' && r.endDate < r.startDate) { toast('Bitiş tarihi ilk tarihten önce olamaz'); return; }
   const now = Date.now();
@@ -477,6 +484,7 @@ function saveRec() {
     type: f.type, name, amount, categoryId: f.categoryId,
     freq: f.freq, day: r.day, startDate: r.startDate, endDate: r.endDate, count: r.count,
     variable: !!f.variable, paused: !!f.paused, accountId: f.accountId || null, updatedAt: now,
+    trialEnd: trial ? f.trialEnd : null, trialAck: trial ? (f.trialEnd === f.trialEndWas ? !!f.trialAck : false) : false,
   };
   if (!f.id) {
     const twin = db.recurring.find((x) => dupKey(x) === dupKey(data));
@@ -551,6 +559,7 @@ Object.assign(actions, {
       freq: recFreq(r), day: r.day || fromISO(start).getDate(), weekday: fromISO(start).getDay(), startDate: start,
       endMode: r.count ? 'count' : r.endDate ? 'date' : 'none', endDate: r.endDate || '', countText: r.count ? String(r.count) : '',
       variable: !!r.variable, paused: !!r.paused, accountId: r.accountId || '',
+      trial: !!r.trialEnd, trialEnd: r.trialEnd || '', trialEndWas: r.trialEnd || '', trialAck: !!r.trialAck,
     });
   },
   'rec-occ': (el) => openConfirm(el.dataset.id, el.dataset.due),

@@ -52,6 +52,7 @@ function accBalance(a, txs, until = TODAY) {
   for (const t of txs) {
     if (t.date > until || t.awaiting || (t.createdAt || 0) < (a.createdAt || 0)) continue;
     if (t.type === 'goal') { if (t.accountId === a.id) v += (t.role === 'withdraw' ? 1 : -1) * (credit ? -t.amount : t.amount); continue; }
+    if (t.type === 'adjust') { if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount); continue; }
     if (t.type === 'debt') { if (t.accountId === a.id) v += (t.flow === 'in' ? 1 : -1) * (credit ? -t.amount : t.amount); continue; }
     if (t.type === 'transfer') {
       if (t.toId === a.id) v += credit ? -t.amount : t.amount;
@@ -124,7 +125,50 @@ export function remindersFor(data) {
     if (d.dueDate === TODAY) items.push({ pri: 0, title: `${kind} vadesi bugün · ${d.person}`, body: `Kalan ${money(remaining)}` });
     else if (isMorning && d.dueDate === plus(3)) items.push({ pri: 2, title: `${kind} vadesine 3 gün · ${d.person}`, body: `${shortDay(d.dueDate)} · kalan ${money(remaining)}` });
   }
+  // Ücretsiz deneme bitişi (sabah: 2 gün kala ve o gün)
+  for (const r of rec) {
+    if (!r.trialEnd || r.trialAck || r.paused) continue;
+    const name = r.name || catName(r.categoryId) || 'Abonelik';
+    if (isMorning && r.trialEnd === plus(2)) items.push({ pri: 1, title: `${name} denemesi 2 gün sonra bitiyor`, body: `Devam etmeyeceksen iptal et · sonra ${money(r.amount)}` });
+    else if (isMorning && r.trialEnd === TODAY) items.push({ pri: 0, title: `${name} denemesi bugün bitiyor`, body: `İptal etmezsen ${money(r.amount)} çekilecek` });
+  }
   return items.sort((a, b) => a.pri - b.pri);
+}
+
+/* ------------------------------ haftalık özet ------------------------------ */
+const weekday = () => fromISO(TODAY).getDay(); // 0 = pazar
+
+export function weeklySummary(data, settings = {}) {
+  if (MODE !== 'evening' || weekday() !== 0 || settings.weeklySummary === false) return null;
+  const { tx, cats } = data;
+  const spent = (from, to) => tx.filter((t) => t.type === 'expense' && !t.awaiting && t.date >= from && t.date <= to);
+  const cur = spent(plus(-6), TODAY), prev = spent(plus(-13), plus(-7));
+  const sum = (l) => l.reduce((s, t) => s + t.amount, 0);
+  const a = sum(cur), b = sum(prev);
+  if (!a && !b) return null;
+  const byCat = {};
+  for (const t of cur) byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount;
+  const top = Object.entries(byCat).sort((x, y) => y[1] - x[1])[0];
+  const topName = top ? cats.find((c) => c.id === top[0])?.name || 'Diğer' : '';
+  const diff = b ? Math.round(((a - b) / b) * 100) : null;
+  const trend = diff == null ? '' : diff === 0 ? ' · geçen haftayla aynı' : diff > 0 ? ` · geçen haftadan %${diff} fazla` : ` · geçen haftadan %${-diff} az`;
+  return {
+    title: `Bu hafta ${money(a)} harcadın`,
+    body: `${cur.length} harcama${trend}${top ? `\nEn çok: ${topName} · ${money(top[1])}` : ''}`,
+    tag: `butcem-week-${TODAY}`, url: './?open=report',
+  };
+}
+
+/* ------------------------------ bugünü kapat ------------------------------ */
+const trDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ms));
+
+export function dayClose(data, settings = {}) {
+  if (MODE !== 'evening' || settings.eveningClose === false) return null;
+  const { tx } = data;
+  if (!tx.length) return null;
+  const touched = tx.some((t) => (t.createdAt && trDay(t.createdAt) === TODAY) || (t.updatedAt && trDay(t.updatedAt) === TODAY) || (t.date === TODAY && !t.awaiting));
+  if (touched) return null;
+  return { title: 'Bugün hiç kayıt girmedin', body: 'Bir şey aldın ya da ödedin mi? Eklemek için dokun.', tag: `butcem-close-${TODAY}`, url: './?open=add' };
 }
 
 export function compose(items) {

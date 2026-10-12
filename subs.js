@@ -97,7 +97,7 @@ function openSubs() {
           const c = recCat(s.r);
           return `<button class="tx" data-action="rec-edit" data-id="${s.r.id}">
             <span class="ico" style="--c:${col(c.color)}">${glyph(c.icon)}</span>
-            <span class="tx-main"><b>${esc(recName(s.r))}${s.raise ? ' <span class="lchip warn"><i></i>Zamlandı</span>' : ''}${s.paused ? ' <span class="lchip"><i></i>Duraklatıldı</span>' : ''}</b>
+            <span class="tx-main"><b>${esc(recName(s.r))}${s.raise ? ' <span class="lchip warn"><i></i>Zamlandı</span>' : ''}${s.paused ? ' <span class="lchip"><i></i>Duraklatıldı</span>' : ''}${trialBadge(s.r)}</b>
               <small>${esc(freqText(s.r))}${s.raise ? ` · ${money(s.raise.from)} → ${money(s.raise.to)}` : ''} · yılda ${money(s.yearly)}</small></span>
             <span class="amt">${money(s.amount)}</span>
           </button>`;

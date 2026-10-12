@@ -1,31 +1,36 @@
 // Uygulama dosyalarını önbelleğe alır: internet yokken de açılır.
 // Kendi dosyalarımız: önce ağdan dener (güncel sürüm gelsin), olmazsa önbellekten verir.
 // Firebase kütüphaneleri (gstatic, sürüm numaralı): önbellekte varsa oradan verir.
-const CACHE = 'butce-v33';
+const CACHE = 'butce-v34';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=33',
-  './icons.js?v=33',
-  './app.js?v=33',
-  './budget.js?v=33',
-  './recurring.js?v=33',
-  './debts.js?v=33',
-  './accounts.js?v=33',
-  './fees.js?v=33',
-  './ai.js?v=33',
-  './scan.js?v=33',
-  './smart.js?v=33',
-  './goals.js?v=33',
-  './subs.js?v=33',
-  './reports.js?v=33',
-  './push.js?v=33',
-  './forecast.js?v=33',
-  './lock.js?v=33',
-  './drive.js?v=33',
-  './home.js?v=33',
-  './start.js?v=33',
-  './firebase-config.js?v=33',
+  './styles.css?v=34',
+  './icons.js?v=34',
+  './app.js?v=34',
+  './budget.js?v=34',
+  './recurring.js?v=34',
+  './debts.js?v=34',
+  './accounts.js?v=34',
+  './fees.js?v=34',
+  './ai.js?v=34',
+  './scan.js?v=34',
+  './smart.js?v=34',
+  './goals.js?v=34',
+  './subs.js?v=34',
+  './reports.js?v=34',
+  './push.js?v=34',
+  './forecast.js?v=34',
+  './lock.js?v=34',
+  './drive.js?v=34',
+  './recon.js?v=34',
+  './debtplan.js?v=34',
+  './trial.js?v=34',
+  './habits.js?v=34',
+  './chat.js?v=34',
+  './home.js?v=34',
+  './start.js?v=34',
+  './firebase-config.js?v=34',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -65,8 +70,9 @@ self.addEventListener('push', (e) => {
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  const open = new URL(url).searchParams.get('open') || '';
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    for (const c of list) if (c.url.startsWith(self.registration.scope)) return c.focus();
+    for (const c of list) if (c.url.startsWith(self.registration.scope)) { if (open) c.postMessage({ type: 'open', open }); return c.focus(); }
     return self.clients.openWindow(url);
   }));
 });

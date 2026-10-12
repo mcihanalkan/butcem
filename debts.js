@@ -111,6 +111,7 @@ function viewDebts() {
   const closed = all.filter((s) => s.closed);
   const t = debtTotals();
   return `
+    ${debtPlanLink()}
     <div class="card sum-list">
       <div><span>Toplam borcum</span><b class="exp">${money(t.owe)}</b></div>
       <div><span>Toplam alacağım</span><b class="inc">${money(t.owed)}</b></div>

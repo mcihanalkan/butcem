@@ -4,7 +4,7 @@
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { MODE, TODAY, remindersFor, compose } from './logic.mjs';
+import { MODE, TODAY, remindersFor, compose, weeklySummary, dayClose } from './logic.mjs';
 
 const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 if (!sa.project_id) { console.log('Bildirim kurulumu henüz tamamlanmadı (FIREBASE_SERVICE_ACCOUNT yok); atlanıyor.'); process.exit(0); }
@@ -22,22 +22,33 @@ for (const userRef of await fdb.collection('users').listDocuments()) {
   if (!devices.length) continue;
   users++;
   const [tx, rec, acc, debt, cats] = await Promise.all(['tx', 'rec', 'acc', 'debt', 'cat'].map((c) => userRef.collection(c).get().then(live)));
-  const items = remindersFor({ tx, rec, acc, debt, cats });
-  if (!items.length) continue;
-  const msg = compose(items);
-  const res = await fcm.sendEachForMulticast({
-    tokens: devices.map((d) => d.data().token),
-    data: { title: msg.title, body: msg.body, tag: `butcem-${MODE}-${TODAY}`, url: './' },
-    webpush: { headers: { Urgency: 'high', TTL: String(12 * 3600) } },
-  });
-  res.responses.forEach((r, i) => {
-    if (r.success) { sent++; return; }
-    failed++;
-    if (/registration-token-not-registered|invalid-argument|invalid-registration-token/.test(r.error?.code || '')) {
-      removed++;
-      devices[i].ref.set({ token: null, disabled: true, updatedAt: Date.now() }, { merge: true });
-    }
-  });
+  const settings = (await userRef.collection('meta').doc('settings').get()).data() || {};
+  const data = { tx, rec, acc, debt, cats };
+  const msgs = [];
+  const items = remindersFor(data);
+  if (items.length) msgs.push({ ...compose(items), tag: `butcem-${MODE}-${TODAY}`, url: './' });
+  const week = weeklySummary(data, settings);
+  if (week) msgs.push(week);
+  const close = dayClose(data, settings);
+  if (close) msgs.push(close);
+  for (const msg of msgs) {
+    const alive = devices.filter((d) => !d.dead);
+    if (!alive.length) break;
+    const res = await fcm.sendEachForMulticast({
+      tokens: alive.map((d) => d.data().token),
+      data: { title: msg.title, body: msg.body, tag: msg.tag, url: msg.url },
+      webpush: { headers: { Urgency: 'high', TTL: String(12 * 3600) } },
+    });
+    res.responses.forEach((r, i) => {
+      if (r.success) { sent++; return; }
+      failed++;
+      if (/registration-token-not-registered|invalid-argument|invalid-registration-token/.test(r.error?.code || '')) {
+        removed++;
+        alive[i].dead = true;
+        alive[i].ref.set({ token: null, disabled: true, updatedAt: Date.now() }, { merge: true });
+      }
+    });
+  }
 }
 
 // Sadece sayılar (kişisel bilgi yok)

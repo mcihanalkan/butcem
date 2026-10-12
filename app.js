@@ -439,6 +439,7 @@ function periodBar() {
 }
 
 function txRow(t, cm, showDate = false) {
+  if (t.type === 'adjust') return adjustRow(t, showDate);
   if (t.type === 'goal') {
     const g = goalById(t.goalId);
     const acc = accById(t.accountId);
@@ -736,7 +737,7 @@ function viewSettings() {
 
 const VIEWS = { tx: viewTx, report: viewReport, cats: viewCats, settings: viewSettings };
 
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 
 function errorCard(e) {
   return `<div class="card empty-card">
@@ -761,6 +762,7 @@ function render() {
     main.innerHTML = errorCard(e);
   }
   window.scrollTo(0, scroll);
+  document.body.dataset.view = ui.view;
   $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === ui.view));
   try { if (typeof updateNavBadges === 'function') updateNavBadges(); } catch (e) { console.error(e); }
   applyTheme();
@@ -1109,7 +1111,7 @@ function exportJson() {
 function exportCsv() {
   const cm = catMap();
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const txType = (t) => t.type === 'income' ? 'Gelir' : t.type === 'expense' ? 'Gider' : t.type === 'transfer' ? 'Transfer' : t.type === 'debt' ? 'Borç/Alacak' : t.type;
+  const txType = (t) => t.type === 'income' ? 'Gelir' : t.type === 'expense' ? 'Gider' : t.type === 'transfer' ? 'Transfer' : t.type === 'debt' ? 'Borç/Alacak' : t.type === 'adjust' ? 'Bakiye düzeltme' : t.type;
   const txAmount = (t) => {
     const sign = t.type === 'income' || (t.type === 'debt' && t.flow === 'in') ? 1 : t.type === 'transfer' ? 0 : -1;
     return ((t.amount * sign) / 100).toFixed(2).replace('.', ',');
@@ -1204,6 +1206,7 @@ const actions = {
   'edit-tx': (el) => {
     const t = db.transactions.find((x) => x.id === el.dataset.id);
     if (t?.feeOf) { const p = db.transactions.find((x) => x.id === t.feeOf); if (p) { el = { dataset: { id: p.id } }; return actions['edit-tx'](el); } }
+    if (t?.type === 'adjust') return openAdjust(t);
     if (t?.type === 'goal') return openGoalPay(t.goalId, t.role, t.id);
     if (t?.type === 'debt') return t.role === 'repay' ? openPay(t.debtId, t.id) : openDebt(t.debtId);
     if (t?.type === 'transfer') openTransfer({ id: t.id });

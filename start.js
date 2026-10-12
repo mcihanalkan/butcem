@@ -9,6 +9,15 @@ history.replaceState({ view: ui.view }, '');
 render();
 initSync();
 
+// Bildirimden gelinen ekran (?open=add → yeni kayıt, ?open=chat …)
+function openFromNotification(what) {
+  if (what === 'add') openTxForm();
+  else if (what === 'report') goTo('report');
+}
+const openParam = new URLSearchParams(location.search).get('open');
+if (openParam) { history.replaceState({ view: ui.view }, '', location.pathname); setTimeout(() => openFromNotification(openParam), 300); }
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'open') openFromNotification(e.data.open); });
+
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   // Yeni sürüm devreye girince sayfayı bir kez yenile (eski ekranlar kalmasın)
   const hadController = !!navigator.serviceWorker.controller;

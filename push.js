@@ -72,10 +72,16 @@ function pushCard() {
     <p class="muted small" style="margin-top:-6px">Kart son ödemesi, borç vadesi ve düzenli ödemeler için 3 gün önce ve o gün sabah 09:00'da; onaylamadığın bir şey kalırsa akşam 20:00'de haber verilir. Uygulama kapalıyken de gelir.</p>
     ${perm === 'unsupported' ? '<p class="muted small">Bu tarayıcı bildirimleri desteklemiyor. Telefonda uygulamayı ana ekrandan açarak dene.</p>'
       : perm === 'denied' ? '<p class="exp small">Bildirim izni kapalı. Telefonun Ayarlar → Uygulamalar → Chrome (ya da Bütçem) → Bildirimler bölümünden izin ver, sonra tekrar dene.</p>'
-      : on ? `<div class="setting"><div><b>Bu cihazda açık</b><p>${esc(pushState.device || '')}</p></div><button class="btn small" data-action="push-off">Kapat</button></div>`
+      : on ? `<div class="setting"><div><b>Bu cihazda açık</b><p>${esc(pushState.device || '')}</p></div><button class="btn small" data-action="push-off">Kapat</button></div>
+        <label class="check"><input type="checkbox" data-change="push-pref" data-key="weeklySummary" ${db.settings.weeklySummary !== false ? 'checked' : ''}><span><b>Haftalık özet</b><small>Pazar 20:00 · bu hafta ne harcadın, geçen haftaya göre fark</small></span></label>
+        <label class="check"><input type="checkbox" data-change="push-pref" data-key="eveningClose" ${db.settings.eveningClose !== false ? 'checked' : ''}><span><b>Bugünü kapat</b><small>20:00 · o gün hiç kayıt girmediysen hatırlatır</small></span></label>`
       : `<button class="btn primary block" data-action="push-on" ${pushBusy ? 'disabled' : ''}>${icon('bell', 18)} ${pushBusy ? 'Açılıyor…' : 'Bu cihazda bildirimleri aç'}</button>`}
   </div>`;
 }
+
+Object.assign(changes, {
+  'push-pref': (el) => { setSetting(el.dataset.key, el.checked); toast('Kaydedildi'); },
+});
 
 Object.assign(actions, {
   'push-on': () => enablePush(),
